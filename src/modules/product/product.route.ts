@@ -19,4 +19,10 @@ router.get(
 
 router.get("/:productId", ProductController.getSingleProduct);
 
+router.patch(
+  "/:productId",
+  validateRequest(ProductValidation.updateProductValidationSchema),
+  ProductController.updateProduct
+);
+
 export const ProductRoutes = router;

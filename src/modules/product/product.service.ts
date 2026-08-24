@@ -74,9 +74,25 @@ const getProductByIdFromDB = async (id: string) => {
   return result;
 };
 
+const updateProductInDB = async (id: string, payload: Partial<IProduct>) => {
+  const isProductExists = await Product.findById(id);
+  if (!isProductExists) {
+    throw new AppError(404, "Product not found");
+  }
+
+  const result = await Product.findByIdAndUpdate(id, payload, {
+    new: true,
+    returnDocument: "after",
+    runValidators: true,
+  });
+
+  return result;
+};
+
 export const ProductService = {
   createProductInDB,
   getProductsFromDB,
   getProductByIdFromDB,
+  updateProductInDB,
 };
 

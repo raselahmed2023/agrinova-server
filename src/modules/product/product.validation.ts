@@ -45,7 +45,41 @@ const getProductsQueryValidationSchema = z.object({
     .optional(),
 });
 
+const updateProductValidationSchema = z.object({
+  body: z.object({
+    title: z.string().min(1, "Title cannot be empty").optional(),
+    description: z.string().min(1, "Description cannot be empty").optional(),
+    price: z
+      .number()
+      .min(0, "Price must be greater than or equal to 0")
+      .optional(),
+    category: z
+      .enum([
+        "seeds",
+        "fertilizers",
+        "pesticides",
+        "equipment",
+        "crops",
+        "livestock",
+        "other",
+      ])
+      .optional(),
+    quantity: z
+      .number()
+      .min(0, "Quantity must be greater than or equal to 0")
+      .optional(),
+    unit: z.string().min(1, "Unit cannot be empty").optional(),
+    images: z.array(z.string()).optional(),
+    sellerName: z.string().optional(),
+    sellerContact: z.string().optional(),
+    location: z.string().optional(),
+    status: z.enum(["available", "out_of_stock"]).optional(),
+    isFeatured: z.boolean().optional(),
+  }),
+});
+
 export const ProductValidation = {
   createProductValidationSchema,
   getProductsQueryValidationSchema,
+  updateProductValidationSchema,
 };

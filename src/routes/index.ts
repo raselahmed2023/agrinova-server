@@ -1,6 +1,14 @@
 import { Router } from "express";
+import { ProductRoutes } from "../modules/product/product.route";
 
 const router = Router();
+
+const moduleRoutes = [
+  {
+    path: "/marketplace/products",
+    route: ProductRoutes,
+  },
+];
 
 router.get("/health", (_req, res) => {
   res.status(200).json({
@@ -8,5 +16,7 @@ router.get("/health", (_req, res) => {
     message: "AgriNova API health check successful",
   });
 });
+
+moduleRoutes.forEach((route) => router.use(route.path, route.route));
 
 export default router;

@@ -1,3 +1,4 @@
+import AppError from "../../utils/AppError";
 import { IProduct, IProductQueryParams } from "./product.interface";
 import { Product } from "./product.model";
 
@@ -65,7 +66,17 @@ const getProductsFromDB = async (query: IProductQueryParams) => {
   };
 };
 
+const getProductByIdFromDB = async (id: string) => {
+  const result = await Product.findById(id);
+  if (!result) {
+    throw new AppError(404, "Product not found");
+  }
+  return result;
+};
+
 export const ProductService = {
   createProductInDB,
   getProductsFromDB,
+  getProductByIdFromDB,
 };
+

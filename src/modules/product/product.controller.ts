@@ -26,7 +26,20 @@ const getProducts = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const getSingleProduct = catchAsync(async (req: Request, res: Response) => {
+  const { productId } = req.params;
+  const result = await ProductService.getProductByIdFromDB(productId as string);
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Product fetched successfully",
+    data: result,
+  });
+});
+
 export const ProductController = {
   createProduct,
   getProducts,
+  getSingleProduct,
 };

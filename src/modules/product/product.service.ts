@@ -89,10 +89,21 @@ const updateProductInDB = async (id: string, payload: Partial<IProduct>) => {
   return result;
 };
 
+const deleteProductFromDB = async (id: string) => {
+  const isProductExists = await Product.findById(id);
+  if (!isProductExists) {
+    throw new AppError(404, "Product not found");
+  }
+
+  const result = await Product.findByIdAndDelete(id);
+  return result;
+};
+
 export const ProductService = {
   createProductInDB,
   getProductsFromDB,
   getProductByIdFromDB,
   updateProductInDB,
+  deleteProductFromDB,
 };
 

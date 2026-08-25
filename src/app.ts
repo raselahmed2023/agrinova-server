@@ -1,7 +1,9 @@
 import cors from "cors";
 import express from "express";
 
-import router from "./routes";
+import { globalErrorHandler } from "./middleware/globalErrorHandler.js";
+import { notFound } from "./middleware/notFound.js";
+import router from "./routes/index.js";
 
 const app = express();
 
@@ -12,7 +14,17 @@ app.use(
   })
 );
 
-app.use(express.json());
+app.use(
+  express.json({
+    limit: "2mb",
+  })
+);
+
+app.use(
+  express.urlencoded({
+    extended: true,
+  })
+);
 
 app.get("/", (_req, res) => {
   res.status(200).json({
@@ -22,5 +34,9 @@ app.get("/", (_req, res) => {
 });
 
 app.use("/api/v1", router);
+
+app.use(notFound);
+
+app.use(globalErrorHandler);
 
 export default app;

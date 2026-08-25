@@ -65,10 +65,31 @@ const deleteProduct = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const getMyListings = catchAsync(async (req: Request, res: Response) => {
+  const userEmail =
+    (req.headers["x-seller-email"] as string) ||
+    (req.headers["seller-email"] as string) ||
+    (req.headers["user-email"] as string);
+
+  const result = await ProductService.getMyListingsFromDB(
+    req.query,
+    userEmail
+  );
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "My listings fetched successfully",
+    meta: result.meta,
+    data: result.data,
+  });
+});
+
 export const ProductController = {
   createProduct,
   getProducts,
   getSingleProduct,
   updateProduct,
   deleteProduct,
+  getMyListings,
 };

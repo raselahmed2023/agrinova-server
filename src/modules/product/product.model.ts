@@ -54,6 +54,11 @@ const productSchema = new Schema<IProduct>(
       trim: true,
       default: "AgriNova Seller",
     },
+    sellerEmail: {
+      type: String,
+      trim: true,
+      lowercase: true,
+    },
     sellerContact: {
       type: String,
       trim: true,

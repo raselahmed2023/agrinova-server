@@ -22,6 +22,7 @@ const createProductValidationSchema = z.object({
     unit: z.string({ message: "Unit is required" }).min(1, "Unit cannot be empty"),
     images: z.array(z.string()).optional(),
     sellerName: z.string().optional(),
+    sellerEmail: z.string().optional(),
     sellerContact: z.string().optional(),
     location: z.string().optional(),
     status: z.enum(["available", "out_of_stock"]).optional().default("available"),
@@ -32,6 +33,25 @@ const createProductValidationSchema = z.object({
 const getProductsQueryValidationSchema = z.object({
   query: z
     .object({
+      search: z.string().optional(),
+      category: z.string().optional(),
+      status: z.string().optional(),
+      minPrice: z.string().optional(),
+      maxPrice: z.string().optional(),
+      sortBy: z.string().optional(),
+      sortOrder: z.enum(["asc", "desc"]).optional(),
+      page: z.string().optional(),
+      limit: z.string().optional(),
+    })
+    .optional(),
+});
+
+const getMyListingsQueryValidationSchema = z.object({
+  query: z
+    .object({
+      email: z.string().optional(),
+      sellerEmail: z.string().optional(),
+      sellerName: z.string().optional(),
       search: z.string().optional(),
       category: z.string().optional(),
       status: z.string().optional(),
@@ -71,6 +91,7 @@ const updateProductValidationSchema = z.object({
     unit: z.string().min(1, "Unit cannot be empty").optional(),
     images: z.array(z.string()).optional(),
     sellerName: z.string().optional(),
+    sellerEmail: z.string().optional(),
     sellerContact: z.string().optional(),
     location: z.string().optional(),
     status: z.enum(["available", "out_of_stock"]).optional(),
@@ -81,5 +102,6 @@ const updateProductValidationSchema = z.object({
 export const ProductValidation = {
   createProductValidationSchema,
   getProductsQueryValidationSchema,
+  getMyListingsQueryValidationSchema,
   updateProductValidationSchema,
 };

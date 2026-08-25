@@ -5,26 +5,45 @@ import { ProductValidation } from "./product.validation";
 
 const router = Router();
 
+// POST /api/v1/marketplace/products
 router.post(
-  "/",
+  "/products",
   validateRequest(ProductValidation.createProductValidationSchema),
   ProductController.createProduct
 );
 
+// GET /api/v1/marketplace/products
 router.get(
-  "/",
+  "/products",
   validateRequest(ProductValidation.getProductsQueryValidationSchema),
   ProductController.getProducts
 );
 
-router.get("/:productId", ProductController.getSingleProduct);
+// GET /api/v1/marketplace/my-listings
+router.get(
+  "/my-listings",
+  validateRequest(ProductValidation.getMyListingsQueryValidationSchema),
+  ProductController.getMyListings
+);
 
+// Support /products/my-listings as well
+router.get(
+  "/products/my-listings",
+  validateRequest(ProductValidation.getMyListingsQueryValidationSchema),
+  ProductController.getMyListings
+);
+
+// GET /api/v1/marketplace/products/:productId
+router.get("/products/:productId", ProductController.getSingleProduct);
+
+// PATCH /api/v1/marketplace/products/:productId
 router.patch(
-  "/:productId",
+  "/products/:productId",
   validateRequest(ProductValidation.updateProductValidationSchema),
   ProductController.updateProduct
 );
 
-router.delete("/:productId", ProductController.deleteProduct);
+// DELETE /api/v1/marketplace/products/:productId
+router.delete("/products/:productId", ProductController.deleteProduct);
 
 export const ProductRoutes = router;

@@ -18,6 +18,7 @@ export interface IProduct {
   unit: string;
   images?: string[];
   sellerName?: string;
+  sellerEmail?: string;
   sellerContact?: string;
   location?: string;
   status: TProductStatus;
@@ -36,4 +37,10 @@ export interface IProductQueryParams {
   sortOrder?: "asc" | "desc";
   page?: string;
   limit?: string;
+}
+
+export interface IMyListingsQueryParams extends IProductQueryParams {
+  email?: string;
+  sellerEmail?: string;
+  sellerName?: string;
 }

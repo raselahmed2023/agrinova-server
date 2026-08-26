@@ -89,3 +89,34 @@ export const deleteTransaction = async (req: Request, res: Response) => {
     });
   }
 };
+// PATCH: Update transaction by ID
+export const updateTransaction = async (req: Request, res: Response) => {
+  try {
+    const { transactionId } = req.params;
+    const updateData = req.body;
+
+    const updatedTransaction = await Finance.findByIdAndUpdate(
+      transactionId,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedTransaction) {
+      return res.status(404).json({
+        success: false,
+        message: "Transaction not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Transaction updated successfully",
+      data: updatedTransaction,
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to update transaction",
+    });
+  }
+};

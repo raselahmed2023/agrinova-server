@@ -41,7 +41,6 @@ export const getUserTransactions = async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
 
-    // userId না থাকলে BadRequest রিটার্ন করবে
     if (!userId || userId === "undefined") {
       return res.status(400).json({
         success: false,
@@ -49,7 +48,7 @@ export const getUserTransactions = async (req: Request, res: Response) => {
       });
     }
 
-    // নির্দিষ্ট userId-এর ট্রানজ্যাকশন তারিখ অনুযায়ী (Newest First) সর্ট করে নিয়ে আসা
+
     const transactions = await Finance.find({ userId }).sort({ date: -1 });
 
     return res.status(200).json({

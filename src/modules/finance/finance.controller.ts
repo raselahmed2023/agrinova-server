@@ -63,3 +63,29 @@ export const getUserTransactions = async (req: Request, res: Response) => {
     });
   }
 };
+
+// DELETE: Delete a transaction by ID
+export const deleteTransaction = async (req: Request, res: Response) => {
+  try {
+    const { transactionId } = req.params;
+
+    const deletedTransaction = await Finance.findByIdAndDelete(transactionId);
+
+    if (!deletedTransaction) {
+      return res.status(404).json({
+        success: false,
+        message: "Transaction not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Transaction deleted successfully",
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to delete transaction",
+    });
+  }
+};

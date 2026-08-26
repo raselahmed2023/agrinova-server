@@ -1,0 +1,56 @@
+import { Request, Response } from "express";
+import { Finance } from "./finance.model"
+
+// POST: Create new transaction
+export const createTransaction = async (req: Request, res: Response) => {
+  try {
+    const { type, amount, category, farm, date, description, userId } = req.body;
+
+    if (!type || !amount || !category || !date || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide all required fields: type, amount, category, date, userId",
+      });
+    }
+
+    const newTransaction = await Finance.create({
+      type,
+      amount,
+      category,
+      farm,
+      date,
+      description,
+      userId,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Transaction created successfully",
+      data: newTransaction,
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to create transaction",
+    });
+  }
+};
+
+// GET: Fetch transactions by userId
+export const getUserTransactions = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    const transactions = await Finance.find({ userId }).sort({ date: -1 });
+
+    return res.status(200).json({
+      success: true,
+      data: transactions,
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to fetch transactions",
+    });
+  }
+};

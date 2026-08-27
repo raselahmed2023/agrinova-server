@@ -1,8 +1,9 @@
 import cors from "cors";
 import express from "express";
-import router from "./routes";
+
 import globalErrorHandler from "./middleware/globalErrorHandler";
 import notFound from "./middleware/notFound";
+import router from "./routes";
 
 const app = express();
 
@@ -18,14 +19,24 @@ app.use(
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        callback(null, true);
+        callback(new Error("Not allowed by CORS"));
       }
     },
     credentials: true,
   })
 );
 
-app.use(express.json());
+app.use(
+  express.json({
+    limit: "2mb",
+  })
+);
+
+app.use(
+  express.urlencoded({
+    extended: true,
+  })
+);
 
 app.get("/", (_req, res) => {
   res.status(200).json({
@@ -36,7 +47,6 @@ app.get("/", (_req, res) => {
 
 app.use("/api/v1", router);
 
-// Global Error & Not Found Handler
 app.use(notFound);
 app.use(globalErrorHandler);
 

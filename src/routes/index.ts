@@ -1,6 +1,8 @@
-import { FarmRoutes } from '../app/modules/farm/farm.route';
-import { WeatherRoutes } from '../app/modules/weather/weather.route';
 import { Router } from "express";
+
+import { FarmRoutes } from "../app/modules/farm/farm.route";
+import { WeatherRoutes } from "../app/modules/weather/weather.route";
+import aiRouter from "../modules/ai/ai.route.js";
 
 const router = Router();
 
@@ -11,19 +13,23 @@ router.get("/health", (_req, res) => {
   });
 });
 
-
-
 const moduleRoutes = [
   {
-    path: '/farms',
+    path: "/farms",
     route: FarmRoutes,
   },
   {
-    path: '/weather',
+    path: "/weather",
     route: WeatherRoutes,
+  },
+  {
+    path: "/ai",
+    route: aiRouter,
   },
 ];
 
-moduleRoutes.forEach((route) => router.use(route.path, route.route));
+moduleRoutes.forEach((route) => {
+  router.use(route.path, route.route);
+});
 
 export default router;

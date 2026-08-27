@@ -3,13 +3,15 @@ import { Router } from "express";
 import { FarmRoutes } from "../app/modules/farm/farm.route";
 import { WeatherRoutes } from "../app/modules/weather/weather.route";
 import aiRouter from "../modules/ai/ai.route.js";
+import { ProductRoutes } from "../modules/product/product.route";
 
 const router = Router();
 
 router.get("/health", (_req, res) => {
   res.status(200).json({
     success: true,
-    message: "AgriNova API health check successful",
+    message:
+      "AgriNova API health check successful",
   });
 });
 
@@ -25,6 +27,10 @@ const moduleRoutes = [
   {
     path: "/ai",
     route: aiRouter,
+  },
+  {
+    path: "/marketplace",
+    route: ProductRoutes,
   },
 ];
 

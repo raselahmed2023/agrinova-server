@@ -1,48 +1,85 @@
-import type { NextFunction, Request, Response } from "express";
-import multer from "multer";
+import { ErrorRequestHandler } from "express";
 import { ZodError } from "zod";
+import AppError from "../utils/AppError";
 
-const globalErrorHandler = (
-  error: unknown,
-  _req: Request,
-  res: Response,
-  _next: NextFunction
+const globalErrorHandler: ErrorRequestHandler = (
+  err,
+  _req,
+  res,
+  _next
 ) => {
-  if (error instanceof ZodError) {
-    return res.status(400).json({
-      success: false,
-      message: "Validation failed",
-      errors: error.issues.map((issue) => ({
-        field: issue.path.join("."),
-        message: issue.message,
-      })),
-    });
+  let statusCode = 500;
+  let message = "Something went wrong!";
+
+  let errorSources: Array<{
+    path: string | number;
+    message: string;
+  }> = [
+    {
+      path: "",
+      message: "Something went wrong",
+    },
+  ];
+
+  if (err instanceof ZodError) {
+    statusCode = 400;
+    message = "Validation Error";
+
+    errorSources = err.issues.map((issue) => ({
+      path: String(
+        issue.path[issue.path.length - 1] ?? ""
+      ),
+      message: issue.message,
+    }));
+  } else if (err instanceof AppError) {
+    statusCode = err.statusCode;
+    message = err.message;
+
+    errorSources = [
+      {
+        path: "",
+        message: err.message,
+      },
+    ];
+  } else if (err?.name === "ValidationError") {
+    statusCode = 400;
+    message = "Mongoose Validation Error";
+
+    errorSources = Object.values(
+      err.errors || {}
+    ).map((val: any) => ({
+      path: val?.path || "",
+      message: val?.message || "",
+    }));
+  } else if (err?.name === "CastError") {
+    statusCode = 400;
+    message = "Invalid ID format";
+
+    errorSources = [
+      {
+        path: err.path,
+        message: err.message,
+      },
+    ];
+  } else if (err instanceof Error) {
+    message = err.message;
+
+    errorSources = [
+      {
+        path: "",
+        message: err.message,
+      },
+    ];
   }
 
-  if (error instanceof multer.MulterError) {
-    if (error.code === "LIMIT_FILE_SIZE") {
-      return res.status(400).json({
-        success: false,
-        message: "Image size must be 5MB or less",
-      });
-    }
-
-    return res.status(400).json({
-      success: false,
-      message: error.message,
-    });
-  }
-
-  if (error instanceof Error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Internal server error",
-    });
-  }
-
-  return res.status(500).json({
+  return res.status(statusCode).json({
     success: false,
-    message: "Internal server error",
+    message,
+    errorSources,
+    stack:
+      process.env.NODE_ENV === "development"
+        ? err?.stack
+        : undefined,
   });
 };
 

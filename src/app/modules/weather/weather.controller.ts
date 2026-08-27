@@ -1,20 +1,53 @@
-import { Request, Response } from 'express';
-import catchAsync from '../../../utils/catchAsync';
-import sendResponse from '../../../utils/sendResponse';
-import { WeatherService } from './weather.service';
+import { Request, Response } from "express";
+import { WeatherService } from "./weather.service";
 
-const getWeather = catchAsync(async (req: Request, res: Response) => {
-  const lat = parseFloat(req.query.lat as string) || 24.3745;
-  const lon = parseFloat(req.query.lon as string) || 88.6042;
+const getWeather = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const lat = Number(req.query.lat);
+    const lon = Number(req.query.lon);
 
-  const result = await WeatherService.getWeatherFromOpenMeteo(lat, lon);
+    if (
+      Number.isNaN(lat) ||
+      Number.isNaN(lon)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Valid latitude and longitude are required.",
+      });
+    }
 
-  sendResponse(res, {
-    statusCode: 200,
-    success: true,
-    message: 'Weather data fetched successfully',
-    data: result,
-  });
-});
+    const result =
+      await WeatherService.getWeather(
+        lat,
+        lon
+      );
 
-export const WeatherController = { getWeather };
+    return res.status(200).json({
+      success: true,
+      message:
+        "Weather fetched successfully",
+      data: result,
+    });
+  } catch (error) {
+    console.error(
+      "Weather controller error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch weather data.",
+    });
+  }
+};
+
+export const WeatherController = {
+  getWeather,
+};

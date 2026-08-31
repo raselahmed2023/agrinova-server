@@ -1,70 +1,206 @@
-import { Request, Response } from 'express';
-import catchAsync from '../../../utils/catchAsync';
-import sendResponse from '../../../utils/sendResponse';
-import { FarmServices } from './farm.service';
+import {
+  Request,
+  Response,
+} from "express";
 
-const createFarm = catchAsync(async (req: Request, res: Response) => {
-  const result = await FarmServices.createFarmIntoDB(req.body);
+import catchAsync from "../../../utils/catchAsync";
+import sendResponse from "../../../utils/sendResponse";
+import AppError from "../../../utils/AppError";
 
-  sendResponse(res, {
-    statusCode: 201,
-    success: true,
-    message: 'Farm created successfully',
-    data: result,
-  });
-});
+import { FarmServices } from "./farm.service";
 
-const getAllFarms = catchAsync(async (req: Request, res: Response) => {
-  const { search, location, status } = req.query;
-  const result = await FarmServices.getAllFarmsFromDB(
-    search as string,
-    location as string,
-    status as string
+const createFarm =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      if (!req.user) {
+        throw new AppError(
+          401,
+          "Authentication required"
+        );
+      }
+
+      const payload = {
+        ...req.body,
+
+        farmerId:
+          req.user.id,
+
+        farmerEmail:
+          req.user.email,
+      };
+
+      const result =
+        await FarmServices.createFarmIntoDB(
+          payload
+        );
+
+      sendResponse(res, {
+        statusCode: 201,
+        success: true,
+        message:
+          "Farm created successfully",
+        data: result,
+      });
+    }
   );
 
-  sendResponse(res, {
-    statusCode: 200,
-    success: true,
-    message: 'Farms retrieved successfully',
-    data: result,
-  });
-});
+const getAllFarms =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      if (!req.user) {
+        throw new AppError(
+          401,
+          "Authentication required"
+        );
+      }
 
-const getSingleFarm = catchAsync(async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const result = await FarmServices.getSingleFarmFromDB(id as string);
+      const {
+        search,
+        location,
+        status,
+      } = req.query;
 
-  sendResponse(res, {
-    statusCode: 200,
-    success: true,
-    message: 'Farm retrieved successfully',
-    data: result,
-  });
-});
+      const result =
+        await FarmServices.getAllFarmsFromDB(
+          req.user.id,
+          search as string,
+          location as string,
+          status as string
+        );
 
-const updateFarm = catchAsync(async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const result = await FarmServices.updateFarmInDB(id as string, req.body);
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          "Farms retrieved successfully",
+        data: result,
+      });
+    }
+  );
 
-  sendResponse(res, {
-    statusCode: 200,
-    success: true,
-    message: 'Farm updated successfully',
-    data: result,
-  });
-});
+const getSingleFarm =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      if (!req.user) {
+        throw new AppError(
+          401,
+          "Authentication required"
+        );
+      }
 
-const deleteFarm = catchAsync(async (req: Request, res: Response) => {
-  const { id } = req.params;
-  await FarmServices.deleteFarmFromDB(id as string);
+      const { id } =
+        req.params;
 
-  sendResponse(res, {
-    statusCode: 200,
-    success: true,
-    message: 'Farm deleted successfully',
-    data: null,
-  });
-});
+      const result =
+        await FarmServices.getSingleFarmFromDB(
+          id as string,
+          req.user.id
+        );
+
+      if (!result) {
+        throw new AppError(
+          404,
+          "Farm not found"
+        );
+      }
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          "Farm retrieved successfully",
+        data: result,
+      });
+    }
+  );
+
+const updateFarm =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      if (!req.user) {
+        throw new AppError(
+          401,
+          "Authentication required"
+        );
+      }
+
+      const { id } =
+        req.params;
+
+      const result =
+        await FarmServices.updateFarmInDB(
+          id as string,
+          req.user.id,
+          req.body
+        );
+
+      if (!result) {
+        throw new AppError(
+          404,
+          "Farm not found"
+        );
+      }
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          "Farm updated successfully",
+        data: result,
+      });
+    }
+  );
+
+const deleteFarm =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      if (!req.user) {
+        throw new AppError(
+          401,
+          "Authentication required"
+        );
+      }
+
+      const { id } =
+        req.params;
+
+      const result =
+        await FarmServices.deleteFarmFromDB(
+          id as string,
+          req.user.id
+        );
+
+      if (!result) {
+        throw new AppError(
+          404,
+          "Farm not found"
+        );
+      }
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          "Farm deleted successfully",
+        data: null,
+      });
+    }
+  );
 
 export const FarmControllers = {
   createFarm,

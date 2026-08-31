@@ -11,6 +11,9 @@ import financeRouter from "../modules/finance/finance.route.js";
 
 import { PurchaseRequestRoutes } from "../modules/purchase-request/purchaseRequest.route";
 
+import { ConsultationRoutes } from "../app/modules/consultation/consultation.route";
+import { ExpertRoutes } from "../app/modules/expert/expert.route";
+
 const router = Router();
 
 router.get("/health", (_req, res) => {
@@ -50,6 +53,16 @@ const moduleRoutes = [
   {
     path: "/finance",
     route: financeRouter,
+  },
+
+  {
+    path: "/consultations",
+    route: ConsultationRoutes,
+  },
+
+  {
+    path: "/experts",
+    route: ExpertRoutes,
   },
 ];
 

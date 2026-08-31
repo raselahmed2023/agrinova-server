@@ -1,11 +1,18 @@
 import { Router } from "express";
 
+import authenticate from "../../middleware/authenticate";
+import authorize from "../../middleware/authorize";
 import validateRequest from "../../middleware/validateRequest";
 
 import { PurchaseRequestController } from "./purchaseRequest.controller";
 import { PurchaseRequestValidation } from "./purchaseRequest.validation";
 
 const router = Router();
+
+router.use(
+  authenticate,
+  authorize("FARMER")
+);
 
 router.post(
   "/",
@@ -38,5 +45,4 @@ router.patch(
   PurchaseRequestController.updateRequestStatus
 );
 
-export const PurchaseRequestRoutes =
-  router;
+export const PurchaseRequestRoutes = router;

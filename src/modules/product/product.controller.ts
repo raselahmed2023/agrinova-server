@@ -1,95 +1,134 @@
 import { Request, Response } from "express";
+
+import AppError from "../../utils/AppError";
 import catchAsync from "../../utils/catchAsync";
 import sendResponse from "../../utils/sendResponse";
 import { ProductService } from "./product.service";
 
-const createProduct = catchAsync(async (req: Request, res: Response) => {
-  const result = await ProductService.createProductInDB(req.body);
+const requireUser = (req: Request) => {
+  if (!req.user) {
+    throw new AppError(401, "Authentication required");
+  }
 
-  sendResponse(res, {
-    statusCode: 201,
-    success: true,
-    message: "Product created successfully",
-    data: result,
-  });
-});
+  return req.user;
+};
 
-const getProducts = catchAsync(async (req: Request, res: Response) => {
-  const result = await ProductService.getProductsFromDB(req.query);
+const createProduct = catchAsync(
+  async (req: Request, res: Response) => {
+    const user = requireUser(req);
 
-  sendResponse(res, {
-    statusCode: 200,
-    success: true,
-    message: "Products fetched successfully",
-    meta: result.meta,
-    data: result.data,
-  });
-});
+    const payload = {
+      ...req.body,
+      sellerName: user.name || "Farmer",
+      sellerEmail: user.email,
+      isFeatured: false,
+    };
 
-const getSingleProduct = catchAsync(async (req: Request, res: Response) => {
-  const { productId } = req.params;
-  const result = await ProductService.getProductByIdFromDB(productId as string);
+    const result = await ProductService.createProductInDB(payload);
 
-  sendResponse(res, {
-    statusCode: 200,
-    success: true,
-    message: "Product fetched successfully",
-    data: result,
-  });
-});
+    sendResponse(res, {
+      statusCode: 201,
+      success: true,
+      message: "Product created successfully",
+      data: result,
+    });
+  }
+);
 
-const updateProduct = catchAsync(async (req: Request, res: Response) => {
-  const { productId } = req.params;
-  const result = await ProductService.updateProductInDB(
-    productId as string,
-    req.body
-  );
+const getProducts = catchAsync(
+  async (req: Request, res: Response) => {
+    const result = await ProductService.getProductsFromDB(req.query);
 
-  sendResponse(res, {
-    statusCode: 200,
-    success: true,
-    message: "Product updated successfully",
-    data: result,
-  });
-});
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Products fetched successfully",
+      meta: result.meta,
+      data: result.data,
+    });
+  }
+);
 
-const deleteProduct = catchAsync(async (req: Request, res: Response) => {
-  const { productId } = req.params;
-  const result = await ProductService.deleteProductFromDB(productId as string);
+const getSingleProduct = catchAsync(
+  async (req: Request, res: Response) => {
+    const { productId } = req.params;
 
-  sendResponse(res, {
-    statusCode: 200,
-    success: true,
-    message: "Product deleted successfully",
-    data: result,
-  });
-});
+    const result = await ProductService.getProductByIdFromDB(
+      productId as string
+    );
 
-const getMyListings = catchAsync(async (req: Request, res: Response) => {
-  const userEmail =
-    (req.headers["x-seller-email"] as string) ||
-    (req.headers["seller-email"] as string) ||
-    (req.headers["user-email"] as string);
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Product fetched successfully",
+      data: result,
+    });
+  }
+);
 
-  const result = await ProductService.getMyListingsFromDB(
-    req.query,
-    userEmail
-  );
+const getMyListings = catchAsync(
+  async (req: Request, res: Response) => {
+    const user = requireUser(req);
 
-  sendResponse(res, {
-    statusCode: 200,
-    success: true,
-    message: "My listings fetched successfully",
-    meta: result.meta,
-    data: result.data,
-  });
-});
+    const result = await ProductService.getMyListingsFromDB(
+      req.query,
+      user.email
+    );
+
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "My listings fetched successfully",
+      meta: result.meta,
+      data: result.data,
+    });
+  }
+);
+
+const updateProduct = catchAsync(
+  async (req: Request, res: Response) => {
+    const user = requireUser(req);
+    const { productId } = req.params;
+
+    const result = await ProductService.updateProductInDB(
+      productId as string,
+      user.email,
+      req.body
+    );
+
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Product updated successfully",
+      data: result,
+    });
+  }
+);
+
+const deleteProduct = catchAsync(
+  async (req: Request, res: Response) => {
+    const user = requireUser(req);
+    const { productId } = req.params;
+
+    const result = await ProductService.deleteProductFromDB(
+      productId as string,
+      user.email
+    );
+
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Product deleted successfully",
+      data: result,
+    });
+  }
+);
 
 export const ProductController = {
   createProduct,
   getProducts,
   getSingleProduct,
+  getMyListings,
   updateProduct,
   deleteProduct,
-  getMyListings,
 };

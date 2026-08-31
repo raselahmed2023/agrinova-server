@@ -1,49 +1,64 @@
 import { Router } from "express";
+
+import authenticate from "../../middleware/authenticate";
+import authorize from "../../middleware/authorize";
 import validateRequest from "../../middleware/validateRequest";
 import { ProductController } from "./product.controller";
 import { ProductValidation } from "./product.validation";
 
 const router = Router();
 
-// POST /api/v1/marketplace/products
-router.post(
-  "/products",
-  validateRequest(ProductValidation.createProductValidationSchema),
-  ProductController.createProduct
-);
-
-// GET /api/v1/marketplace/products
+// Public marketplace browse
 router.get(
   "/products",
   validateRequest(ProductValidation.getProductsQueryValidationSchema),
   ProductController.getProducts
 );
 
-// GET /api/v1/marketplace/my-listings
+// Protected seller routes
+router.post(
+  "/products",
+  authenticate,
+  authorize("FARMER"),
+  validateRequest(ProductValidation.createProductValidationSchema),
+  ProductController.createProduct
+);
+
 router.get(
   "/my-listings",
+  authenticate,
+  authorize("FARMER"),
   validateRequest(ProductValidation.getMyListingsQueryValidationSchema),
   ProductController.getMyListings
 );
 
-// Support /products/my-listings as well
 router.get(
   "/products/my-listings",
+  authenticate,
+  authorize("FARMER"),
   validateRequest(ProductValidation.getMyListingsQueryValidationSchema),
   ProductController.getMyListings
 );
 
-// GET /api/v1/marketplace/products/:productId
-router.get("/products/:productId", ProductController.getSingleProduct);
+// Keep this after /products/my-listings
+router.get(
+  "/products/:productId",
+  ProductController.getSingleProduct
+);
 
-// PATCH /api/v1/marketplace/products/:productId
 router.patch(
   "/products/:productId",
+  authenticate,
+  authorize("FARMER"),
   validateRequest(ProductValidation.updateProductValidationSchema),
   ProductController.updateProduct
 );
 
-// DELETE /api/v1/marketplace/products/:productId
-router.delete("/products/:productId", ProductController.deleteProduct);
+router.delete(
+  "/products/:productId",
+  authenticate,
+  authorize("FARMER"),
+  ProductController.deleteProduct
+);
 
 export const ProductRoutes = router;

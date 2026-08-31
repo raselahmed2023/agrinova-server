@@ -1,32 +1,62 @@
 import { z } from "zod";
 
+const categorySchema = z.enum([
+  "seeds",
+  "fertilizers",
+  "pesticides",
+  "equipment",
+  "crops",
+  "livestock",
+  "other",
+]);
+
+const statusSchema = z.enum([
+  "available",
+  "out_of_stock",
+]);
+
 const createProductValidationSchema = z.object({
   body: z.object({
-    title: z.string({ message: "Title is required" }).min(1, "Title cannot be empty"),
-    description: z.string({ message: "Description is required" }).min(1, "Description cannot be empty"),
+    title: z
+      .string({ message: "Title is required" })
+      .trim()
+      .min(1, "Title cannot be empty"),
+
+    description: z
+      .string({ message: "Description is required" })
+      .trim()
+      .min(1, "Description cannot be empty"),
+
     price: z
       .number({ message: "Price is required" })
-      .min(0, "Price must be greater than or equal to 0"),
-    category: z.enum([
-      "seeds",
-      "fertilizers",
-      "pesticides",
-      "equipment",
-      "crops",
-      "livestock",
-      "other",
-    ]),
+      .positive("Price must be greater than 0"),
+
+    category: categorySchema,
+
     quantity: z
       .number({ message: "Quantity is required" })
-      .min(0, "Quantity must be greater than or equal to 0"),
-    unit: z.string({ message: "Unit is required" }).min(1, "Unit cannot be empty"),
-    images: z.array(z.string()).optional(),
-    sellerName: z.string().optional(),
-    sellerEmail: z.string().optional(),
-    sellerContact: z.string().optional(),
-    location: z.string().optional(),
-    status: z.enum(["available", "out_of_stock"]).optional().default("available"),
-    isFeatured: z.boolean().optional().default(false),
+      .positive("Quantity must be greater than 0"),
+
+    unit: z
+      .string({ message: "Unit is required" })
+      .trim()
+      .min(1, "Unit cannot be empty"),
+
+    images: z.array(z.string().url()).max(5).optional(),
+
+    sellerContact: z
+      .string()
+      .trim()
+      .max(50)
+      .optional(),
+
+    location: z
+      .string()
+      .trim()
+      .max(200)
+      .optional(),
+
+    status: statusSchema.optional().default("available"),
   }),
 });
 
@@ -40,6 +70,7 @@ const getProductsQueryValidationSchema = z.object({
       maxPrice: z.string().optional(),
       sortBy: z.string().optional(),
       sortOrder: z.enum(["asc", "desc"]).optional(),
+      sort: z.string().optional(),
       page: z.string().optional(),
       limit: z.string().optional(),
     })
@@ -49,9 +80,6 @@ const getProductsQueryValidationSchema = z.object({
 const getMyListingsQueryValidationSchema = z.object({
   query: z
     .object({
-      email: z.string().optional(),
-      sellerEmail: z.string().optional(),
-      sellerName: z.string().optional(),
       search: z.string().optional(),
       category: z.string().optional(),
       status: z.string().optional(),
@@ -66,37 +94,22 @@ const getMyListingsQueryValidationSchema = z.object({
 });
 
 const updateProductValidationSchema = z.object({
-  body: z.object({
-    title: z.string().min(1, "Title cannot be empty").optional(),
-    description: z.string().min(1, "Description cannot be empty").optional(),
-    price: z
-      .number()
-      .min(0, "Price must be greater than or equal to 0")
-      .optional(),
-    category: z
-      .enum([
-        "seeds",
-        "fertilizers",
-        "pesticides",
-        "equipment",
-        "crops",
-        "livestock",
-        "other",
-      ])
-      .optional(),
-    quantity: z
-      .number()
-      .min(0, "Quantity must be greater than or equal to 0")
-      .optional(),
-    unit: z.string().min(1, "Unit cannot be empty").optional(),
-    images: z.array(z.string()).optional(),
-    sellerName: z.string().optional(),
-    sellerEmail: z.string().optional(),
-    sellerContact: z.string().optional(),
-    location: z.string().optional(),
-    status: z.enum(["available", "out_of_stock"]).optional(),
-    isFeatured: z.boolean().optional(),
-  }),
+  body: z
+    .object({
+      title: z.string().trim().min(1).optional(),
+      description: z.string().trim().min(1).optional(),
+      price: z.number().positive().optional(),
+      category: categorySchema.optional(),
+      quantity: z.number().min(0).optional(),
+      unit: z.string().trim().min(1).optional(),
+      images: z.array(z.string().url()).max(5).optional(),
+      sellerContact: z.string().trim().max(50).optional(),
+      location: z.string().trim().max(200).optional(),
+      status: statusSchema.optional(),
+    })
+    .refine((body) => Object.keys(body).length > 0, {
+      message: "At least one field is required",
+    }),
 });
 
 export const ProductValidation = {

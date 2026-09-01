@@ -5,6 +5,7 @@ import type {
 
 import { AIService } from "./ai.service.js";
 
+
 const farmingAssistant = async (
   req: Request,
   res: Response
@@ -32,25 +33,28 @@ const farmingAssistant = async (
   }
 };
 
-const cropRecommendation = async (
+
+const smartFarmingRecommendation = async (
   req: Request,
   res: Response
 ) => {
   try {
     const result =
-      await AIService.cropRecommendation(req.body);
+      await AIService.smartFarmingRecommendation(
+        req.body
+      );
 
     return res.status(200).json({
       success: true,
       message:
-        "Crop recommendations generated successfully",
+        "Smart farming recommendation generated successfully",
       data: result,
     });
   } catch (error) {
     const message =
       error instanceof Error
         ? error.message
-        : "Crop recommendation failed";
+        : "Smart farming recommendation failed";
 
     return res.status(500).json({
       success: false,
@@ -58,6 +62,7 @@ const cropRecommendation = async (
     });
   }
 };
+
 
 const diseaseDetection = async (
   req: Request,
@@ -67,7 +72,8 @@ const diseaseDetection = async (
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: "Crop image is required",
+        message:
+          "Crop image is required",
       });
     }
 
@@ -99,6 +105,6 @@ const diseaseDetection = async (
 
 export const AIController = {
   farmingAssistant,
-  cropRecommendation,
+  smartFarmingRecommendation,
   diseaseDetection,
 };

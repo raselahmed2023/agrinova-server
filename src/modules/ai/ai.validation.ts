@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+
 export const farmingAssistantSchema = z.object({
   body: z.object({
     message: z
@@ -8,7 +9,11 @@ export const farmingAssistantSchema = z.object({
       .min(2, "Message is required")
       .max(2000, "Message is too long"),
 
-    farmId: z.string().optional(),
+    farmId: z
+      .string()
+      .trim()
+      .min(1, "Invalid farm ID")
+      .optional(),
 
     context: z
       .string()
@@ -18,35 +23,30 @@ export const farmingAssistantSchema = z.object({
   }),
 });
 
-export const cropRecommendationSchema = z.object({
+
+export const smartFarmingRecommendationSchema = z.object({
   body: z.object({
-    location: z
+    farmId: z
       .string()
       .trim()
-      .min(2, "Location is required"),
+      .min(1, "Farm is required"),
 
-    soilType: z
+    problem: z
       .string()
       .trim()
-      .min(2, "Soil type is required"),
-
-    season: z
-      .string()
-      .trim()
-      .min(2, "Season is required"),
-
-    waterAvailability: z.enum([
-      "LOW",
-      "MEDIUM",
-      "HIGH",
-    ]),
-
-    farmSize: z.number().positive().optional(),
-
-    notes: z
-      .string()
-      .trim()
-      .max(1000, "Notes are too long")
-      .optional(),
+      .min(
+        5,
+        "Please describe your farming problem clearly"
+      )
+      .max(
+        2000,
+        "Problem description is too long"
+      ),
   }),
 });
+
+
+export const AIValidations = {
+  farmingAssistantSchema,
+  smartFarmingRecommendationSchema,
+};

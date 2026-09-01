@@ -15,7 +15,23 @@ router.get(
   ExpertControllers.getExpertDashboard
 );
 
-// GET & PUT profile
+// GET & PATCH /api/v1/experts/me/availability (User Specified)
+router.get(
+  "/me/availability",
+  authenticate,
+  authorize("EXPERT", "ADMIN"),
+  ExpertControllers.getExpertAvailability
+);
+
+router.patch(
+  "/me/availability",
+  authenticate,
+  authorize("EXPERT", "ADMIN"),
+  validateRequest(ExpertValidations.updateAvailabilityValidationSchema),
+  ExpertControllers.updateExpertAvailability
+);
+
+// Profile
 router.get(
   "/profile",
   authenticate,
@@ -31,7 +47,7 @@ router.put(
   ExpertControllers.updateExpertProfile
 );
 
-// GET & PUT availability
+// Availability Aliases
 router.get(
   "/availability",
   authenticate,
@@ -40,6 +56,14 @@ router.get(
 );
 
 router.put(
+  "/availability",
+  authenticate,
+  authorize("EXPERT", "ADMIN"),
+  validateRequest(ExpertValidations.updateAvailabilityValidationSchema),
+  ExpertControllers.updateExpertAvailability
+);
+
+router.patch(
   "/availability",
   authenticate,
   authorize("EXPERT", "ADMIN"),

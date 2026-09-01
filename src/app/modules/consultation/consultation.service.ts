@@ -6,6 +6,13 @@ import type {
   TConsultationUrgency,
 } from "./consultation.interface";
 import { Consultation } from "./consultation.model";
+import {
+  UserModel,
+  defaultAvailabilitySlots,
+} from "../expert/expert.service";
+import type { WeekDay, IAvailabilitySlot } from "../expert/expert.interface";
+
+const CONSULTATION_DURATION_MINUTES = 30;
 
 interface UserContext {
   id: string;
@@ -16,8 +23,10 @@ interface UserContext {
 
 interface CreateConsultationPayload {
   cropType: string;
+  cropName?: string;
   problemTitle: string;
   problemDescription: string;
+  farmId?: string;
   farmName?: string;
   district?: string;
   images?: string[];
@@ -28,19 +37,31 @@ interface CreateConsultationPayload {
 }
 
 interface ScheduleConsultationPayload {
-  scheduledDate: string;
-  scheduledTime: string;
+  scheduledAt?: string | Date;
+  scheduledDate?: string;
+  scheduledTime?: string;
   meetingLink?: string;
   notes?: string;
 }
 
 interface RecommendationPayload {
-  diagnosis: string;
+  diagnosis?: string;
+  recommendation?: string;
   prescriptions?: string[];
   treatmentSteps?: string[];
   followUpDate?: string;
   additionalNotes?: string;
 }
+
+const weekDayMap: WeekDay[] = [
+  "SUNDAY",    // 0
+  "MONDAY",    // 1
+  "TUESDAY",   // 2
+  "WEDNESDAY", // 3
+  "THURSDAY",  // 4
+  "FRIDAY",    // 5
+  "SATURDAY",  // 6
+];
 
 const createConsultationIntoDB = async (
   user: UserContext,
@@ -48,6 +69,7 @@ const createConsultationIntoDB = async (
 ) => {
   const consultationData: Partial<IConsultation> = {
     farmerId: user.id,
+    farmerName: user.name || "AgriNova Farmer",
     farmerEmail: user.email.toLowerCase().trim(),
     farmer: {
       id: user.id,
@@ -57,8 +79,10 @@ const createConsultationIntoDB = async (
       district: payload.district,
       location: payload.district,
     },
+    farmId: payload.farmId,
     farmName: payload.farmName,
     district: payload.district,
+    cropName: payload.cropName || payload.cropType,
     cropType: payload.cropType,
     problemTitle: payload.problemTitle,
     problemDescription: payload.problemDescription,
@@ -68,6 +92,7 @@ const createConsultationIntoDB = async (
     preferredTime: payload.preferredTime,
     notes: payload.notes,
     status: "PENDING",
+    requestedAt: new Date(),
   };
 
   const result = await Consultation.create(consultationData);
@@ -104,6 +129,8 @@ const getAllConsultationsFromDB = async (
       { problemTitle: searchRegex },
       { problemDescription: searchRegex },
       { cropType: searchRegex },
+      { cropName: searchRegex },
+      { farmerName: searchRegex },
       { "farmer.name": searchRegex },
       { farmName: searchRegex },
       { district: searchRegex },
@@ -143,6 +170,8 @@ const getExpertConsultationsFromDB = async (
       { problemTitle: searchRegex },
       { problemDescription: searchRegex },
       { cropType: searchRegex },
+      { cropName: searchRegex },
+      { farmerName: searchRegex },
       { "farmer.name": searchRegex },
       { farmName: searchRegex },
       { district: searchRegex },
@@ -162,17 +191,15 @@ const getExpertConsultationsFromDB = async (
 };
 
 const getSingleConsultationFromDB = async (id: string, user: UserContext) => {
-  if (!isValidObjectId(id)) {
-    // Also check if id string matches custom id
-    const byCustomId = await Consultation.findOne({
+  let consultation = null;
+  if (isValidObjectId(id)) {
+    consultation = await Consultation.findById(id);
+  } else {
+    consultation = await Consultation.findOne({
       $or: [{ _id: id }, { id }],
-    }).catch(() => null);
-    if (byCustomId) return byCustomId;
-
-    throw new AppError(400, "Invalid consultation ID");
+    });
   }
 
-  const consultation = await Consultation.findById(id);
   if (!consultation) {
     throw new AppError(404, "Consultation not found");
   }
@@ -210,7 +237,9 @@ const acceptConsultationInDB = async (
 
   consultation.status = "ACCEPTED";
   consultation.expertId = expertUser.id;
+  consultation.expertName = expertUser.name || "AgriNova Specialist";
   consultation.expertEmail = expertUser.email.toLowerCase().trim();
+  consultation.acceptedAt = new Date();
   consultation.expert = {
     id: expertUser.id,
     name: expertUser.name || "AgriNova Specialist",
@@ -250,6 +279,7 @@ const rejectConsultationInDB = async (
   consultation.rejectionReason =
     reason || "Unable to handle this consultation.";
   consultation.expertId = expertUser.id;
+  consultation.expertName = expertUser.name || "AgriNova Specialist";
   consultation.expertEmail = expertUser.email.toLowerCase().trim();
 
   await consultation.save();
@@ -274,18 +304,155 @@ const scheduleConsultationInDB = async (
     throw new AppError(404, "Consultation not found");
   }
 
+  // Check role & ownership
+  if (
+    consultation.expertId &&
+    consultation.expertId !== expertUser.id &&
+    expertUser.role !== "ADMIN"
+  ) {
+    throw new AppError(
+      403,
+      "You are not assigned to schedule this consultation."
+    );
+  }
+
+  // Allowed statuses
+  if (!["ACCEPTED", "SCHEDULED"].includes(consultation.status)) {
+    throw new AppError(
+      400,
+      `Cannot schedule consultation with status '${consultation.status}'. Must be ACCEPTED or SCHEDULED.`
+    );
+  }
+
+  // Determine target scheduledAt Date
+  let scheduledAtDate: Date;
+  if (payload.scheduledAt) {
+    scheduledAtDate = new Date(payload.scheduledAt);
+  } else if (payload.scheduledDate && payload.scheduledTime) {
+    // parse date string e.g. "2026-09-05" and time "19:30"
+    scheduledAtDate = new Date(
+      `${payload.scheduledDate}T${payload.scheduledTime}:00`
+    );
+  } else {
+    throw new AppError(
+      400,
+      "scheduledAt (or scheduledDate and scheduledTime) is required"
+    );
+  }
+
+  if (isNaN(scheduledAtDate.getTime())) {
+    throw new AppError(400, "Invalid scheduled date/time");
+  }
+
+  // Check scheduledAt is in the future
+  if (scheduledAtDate.getTime() <= Date.now()) {
+    throw new AppError(400, "Scheduled consultation time must be in the future.");
+  }
+
+  // Load expert's user profile to verify availability
+  const expertDoc = await UserModel.findOne({
+    $or: [
+      { _id: expertUser.id },
+      { email: expertUser.email.toLowerCase().trim() },
+    ],
+  });
+
+  const availabilityStatus = expertDoc?.availabilityStatus || "AVAILABLE";
+  if (availabilityStatus === "UNAVAILABLE") {
+    throw new AppError(
+      400,
+      "Expert is currently marked as UNAVAILABLE. Cannot schedule consultations."
+    );
+  }
+
+  const availabilitySlots =
+    expertDoc?.availabilitySlots &&
+    Array.isArray(expertDoc.availabilitySlots) &&
+    expertDoc.availabilitySlots.length > 0
+      ? expertDoc.availabilitySlots
+      : defaultAvailabilitySlots;
+
+  // Determine Weekday of requested time
+  const targetDay = weekDayMap[scheduledAtDate.getDay()];
+  const matchingSlot = (availabilitySlots as IAvailabilitySlot[]).find(
+    (s: IAvailabilitySlot) => s.day === targetDay
+  );
+
+  if (!matchingSlot || !matchingSlot.enabled) {
+    throw new AppError(
+      400,
+      `Expert is not available on ${targetDay}. Please choose an enabled day.`
+    );
+  }
+
+  // Format time of scheduledAt to HH:mm
+  const hours = String(scheduledAtDate.getHours()).padStart(2, "0");
+  const minutes = String(scheduledAtDate.getMinutes()).padStart(2, "0");
+  const scheduledTimeStr = `${hours}:${minutes}`;
+
+  if (matchingSlot.startTime && matchingSlot.endTime) {
+    if (
+      scheduledTimeStr < matchingSlot.startTime ||
+      scheduledTimeStr > matchingSlot.endTime
+    ) {
+      throw new AppError(
+        400,
+        `Selected time (${scheduledTimeStr}) is outside available hours for ${targetDay} (${matchingSlot.startTime} - ${matchingSlot.endTime}).`
+      );
+    }
+  }
+
+  // Collision Overlap Check (Duration = 30 minutes)
+  const newStart = scheduledAtDate.getTime();
+  const newEnd = newStart + CONSULTATION_DURATION_MINUTES * 60 * 1000;
+
+  // Find all SCHEDULED or ONGOING consultations for this expert
+  const existingActiveConsultations = await Consultation.find({
+    expertId: expertUser.id,
+    status: { $in: ["SCHEDULED", "ONGOING"] },
+    _id: { $ne: consultation._id },
+    scheduledAt: { $exists: true, $ne: null },
+  });
+
+  for (const existing of existingActiveConsultations) {
+    if (existing.scheduledAt) {
+      const existingStart = new Date(existing.scheduledAt).getTime();
+      const existingEnd =
+        existingStart + CONSULTATION_DURATION_MINUTES * 60 * 1000;
+
+      // Overlap formula: newStart < existingEnd && newEnd > existingStart
+      if (newStart < existingEnd && newEnd > existingStart) {
+        throw new AppError(
+          409,
+          "Selected time overlaps with another consultation."
+        );
+      }
+    }
+  }
+
+  // All checks passed! Update consultation
   const generatedMeetingLink =
     payload.meetingLink ||
     `https://meet.agrinova.io/room/${consultation._id.toString()}`;
 
   consultation.status = "SCHEDULED";
-  consultation.scheduledDate = payload.scheduledDate;
-  consultation.scheduledTime = payload.scheduledTime;
+  consultation.scheduledAt = scheduledAtDate;
+  consultation.scheduledDate = scheduledAtDate.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  consultation.scheduledTime = scheduledTimeStr;
+  consultation.videoRoomId = `room-${consultation._id.toString()}`;
   consultation.meetingLink = generatedMeetingLink;
-  if (payload.notes) consultation.notes = payload.notes;
+
+  if (payload.notes) {
+    consultation.notes = payload.notes;
+  }
 
   if (!consultation.expertId) {
     consultation.expertId = expertUser.id;
+    consultation.expertName = expertUser.name || "AgriNova Specialist";
     consultation.expertEmail = expertUser.email;
     consultation.expert = {
       id: expertUser.id,
@@ -317,6 +484,12 @@ const updateConsultationStatusInDB = async (
   }
 
   consultation.status = status;
+  if (status === "ONGOING" && !consultation.startedAt) {
+    consultation.startedAt = new Date();
+  }
+  if (status === "COMPLETED" && !consultation.completedAt) {
+    consultation.completedAt = new Date();
+  }
   if (status === "CANCELLED" && reason) {
     consultation.cancellationReason = reason;
   }
@@ -346,9 +519,14 @@ const addRecommendationInDB = async (
     throw new AppError(404, "Consultation not found");
   }
 
+  const recommendationText =
+    payload.recommendation || payload.diagnosis || "Follow prescribed treatment";
+
   consultation.status = "COMPLETED";
+  consultation.completedAt = new Date();
+  consultation.recommendation = recommendationText;
   consultation.recommendations = {
-    diagnosis: payload.diagnosis,
+    diagnosis: payload.diagnosis || recommendationText,
     prescriptions: payload.prescriptions || [],
     treatmentSteps: payload.treatmentSteps || [],
     followUpDate: payload.followUpDate,

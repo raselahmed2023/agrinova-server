@@ -1,5 +1,9 @@
 import { Schema, model } from "mongoose";
-import type { IConsultation, TConsultationStatus, TConsultationUrgency } from "./consultation.interface";
+import type {
+  IConsultation,
+  TConsultationStatus,
+  TConsultationUrgency,
+} from "./consultation.interface";
 
 const statuses: TConsultationStatus[] = [
   "PENDING",
@@ -25,6 +29,10 @@ const consultationSchema = new Schema<IConsultation>(
       required: true,
       index: true,
     },
+    farmerName: {
+      type: String,
+      trim: true,
+    },
     farmerEmail: {
       type: String,
       required: true,
@@ -44,6 +52,10 @@ const consultationSchema = new Schema<IConsultation>(
       farmType: { type: String },
       farmSize: { type: String },
     },
+    farmId: {
+      type: String,
+      trim: true,
+    },
     farmName: {
       type: String,
       trim: true,
@@ -55,6 +67,10 @@ const consultationSchema = new Schema<IConsultation>(
     expertId: {
       type: String,
       index: true,
+    },
+    expertName: {
+      type: String,
+      trim: true,
     },
     expertEmail: {
       type: String,
@@ -69,6 +85,10 @@ const consultationSchema = new Schema<IConsultation>(
       title: { type: String },
       avatar: { type: String },
       phone: { type: String },
+    },
+    cropName: {
+      type: String,
+      trim: true,
     },
     cropType: {
       type: String,
@@ -99,6 +119,18 @@ const consultationSchema = new Schema<IConsultation>(
       type: String,
       enum: urgencies,
       default: "MEDIUM",
+    },
+    scheduledAt: {
+      type: Date,
+      index: true,
+    },
+    recommendation: {
+      type: String,
+      trim: true,
+    },
+    videoRoomId: {
+      type: String,
+      trim: true,
     },
     preferredDate: {
       type: String,
@@ -140,6 +172,19 @@ const consultationSchema = new Schema<IConsultation>(
       additionalNotes: { type: String },
       createdAt: { type: Date, default: Date.now },
     },
+    requestedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    acceptedAt: {
+      type: Date,
+    },
+    startedAt: {
+      type: Date,
+    },
+    completedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,
@@ -149,5 +194,9 @@ const consultationSchema = new Schema<IConsultation>(
 consultationSchema.index({ status: 1, createdAt: -1 });
 consultationSchema.index({ farmerId: 1, createdAt: -1 });
 consultationSchema.index({ expertId: 1, createdAt: -1 });
+consultationSchema.index({ expertId: 1, scheduledAt: 1, status: 1 });
 
-export const Consultation = model<IConsultation>("Consultation", consultationSchema);
+export const Consultation = model<IConsultation>(
+  "Consultation",
+  consultationSchema
+);

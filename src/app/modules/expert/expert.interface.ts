@@ -1,5 +1,45 @@
 import type { IConsultation } from "../consultation/consultation.interface";
 
+export type WeekDay =
+  | "SATURDAY"
+  | "SUNDAY"
+  | "MONDAY"
+  | "TUESDAY"
+  | "WEDNESDAY"
+  | "THURSDAY"
+  | "FRIDAY";
+
+export interface IAvailabilitySlot {
+  day: WeekDay;
+  enabled: boolean;
+  startTime?: string; // "HH:mm" e.g., "18:00"
+  endTime?: string;   // "HH:mm" e.g., "21:00"
+}
+
+export interface IExpert {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  profileImage?: string;
+  avatar?: string;
+  title?: string;
+  specialization?: string | string[];
+  qualification?: string;
+  experienceYears?: number;
+  institution?: string;
+  bio?: string;
+  rating?: number;
+  ratingCount?: number;
+  totalConsultations?: number;
+  consultationFee?: number;
+  languages?: string[];
+  location?: string;
+  isVerified?: boolean;
+  availabilityStatus: "AVAILABLE" | "UNAVAILABLE";
+  availabilitySlots?: IAvailabilitySlot[];
+}
+
 export interface IExpertProfile {
   id?: string;
   _id?: string;
@@ -22,26 +62,10 @@ export interface IExpertProfile {
   isVerified?: boolean;
 }
 
-export interface IAvailabilitySlot {
-  id: string;
-  start: string;
-  end: string;
-}
-
-export interface IWeeklyScheduleDay {
-  day: string;
-  label: string;
-  isAvailable: boolean;
-  slots: IAvailabilitySlot[];
-}
-
 export interface IExpertAvailability {
-  expertId: string;
-  isAcceptingConsultations: boolean;
-  timezone: string;
-  slotDurationMinutes: number;
-  weeklySchedule: IWeeklyScheduleDay[];
-  customDatesOff: string[];
+  expertId?: string;
+  availabilityStatus: "AVAILABLE" | "UNAVAILABLE";
+  availabilitySlots: IAvailabilitySlot[];
 }
 
 export interface IExpertDashboardData {
@@ -53,5 +77,5 @@ export interface IExpertDashboardData {
   recentRequests: IConsultation[];
   upcomingConsultations: IConsultation[];
   ongoingConsultations: IConsultation[];
-  availabilityStatus: "AVAILABLE" | "BUSY" | "OFFLINE" | "PAUSED";
+  availabilityStatus: "AVAILABLE" | "UNAVAILABLE";
 }

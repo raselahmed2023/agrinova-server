@@ -41,29 +41,53 @@ export interface IConsultationRecommendation {
 }
 
 export interface IConsultation {
+  _id?: string;
+  id?: string;
+
   farmerId: string;
+  farmerName?: string;
   farmerEmail: string;
   farmer: IConsultationFarmer;
-  farmName?: string;
-  district?: string;
+
   expertId?: string;
+  expertName?: string;
   expertEmail?: string;
   expert?: IConsultationExpert;
+
+  farmId?: string;
+  farmName?: string;
+
+  district?: string;
+  cropName?: string;
   cropType: string;
+
   problemTitle: string;
   problemDescription: string;
   images?: string[];
+
   status: TConsultationStatus;
   urgency: TConsultationUrgency;
+
+  scheduledAt?: Date;
+  recommendation?: string;
+  videoRoomId?: string;
+
   preferredDate?: string;
   preferredTime?: string;
   scheduledDate?: string;
   scheduledTime?: string;
   meetingLink?: string;
+
   rejectionReason?: string;
   cancellationReason?: string;
   notes?: string;
   recommendations?: IConsultationRecommendation;
+
+  requestedAt?: Date;
+  acceptedAt?: Date;
+  startedAt?: Date;
+  completedAt?: Date;
+
   createdAt?: Date;
   updatedAt?: Date;
 }

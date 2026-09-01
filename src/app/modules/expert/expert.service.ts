@@ -1,8 +1,11 @@
 import mongoose, { Schema, model } from "mongoose";
+import AppError from "../../../utils/AppError";
 import type {
+  IAvailabilitySlot,
   IExpertAvailability,
   IExpertDashboardData,
   IExpertProfile,
+  WeekDay,
 } from "./expert.interface";
 import { Consultation } from "../consultation/consultation.model";
 
@@ -36,12 +39,8 @@ interface IUserDocument {
   languages?: string[];
   location?: string;
   isVerified?: boolean;
-  availabilityStatus?: "AVAILABLE" | "BUSY" | "OFFLINE" | "PAUSED";
-  isAcceptingConsultations?: boolean;
-  timezone?: string;
-  slotDurationMinutes?: number;
-  weeklySchedule?: unknown[];
-  customDatesOff?: string[];
+  availabilityStatus?: "AVAILABLE" | "UNAVAILABLE";
+  availabilitySlots?: IAvailabilitySlot[];
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -68,12 +67,34 @@ const userSchema = new Schema<IUserDocument>(
     languages: { type: [String], default: ["Bengali", "English"] },
     location: { type: String },
     isVerified: { type: Boolean, default: true },
-    availabilityStatus: { type: String, default: "AVAILABLE" },
-    isAcceptingConsultations: { type: Boolean, default: true },
-    timezone: { type: String, default: "Asia/Dhaka (GMT+6)" },
-    slotDurationMinutes: { type: Number, default: 30 },
-    weeklySchedule: { type: [Schema.Types.Mixed], default: [] },
-    customDatesOff: { type: [String], default: [] },
+    availabilityStatus: {
+      type: String,
+      enum: ["AVAILABLE", "UNAVAILABLE"],
+      default: "AVAILABLE",
+    },
+    availabilitySlots: {
+      type: [
+        {
+          day: {
+            type: String,
+            enum: [
+              "SATURDAY",
+              "SUNDAY",
+              "MONDAY",
+              "TUESDAY",
+              "WEDNESDAY",
+              "THURSDAY",
+              "FRIDAY",
+            ],
+            required: true,
+          },
+          enabled: { type: Boolean, default: false },
+          startTime: { type: String },
+          endTime: { type: String },
+        },
+      ],
+      default: [],
+    },
   },
   {
     timestamps: true,
@@ -82,64 +103,17 @@ const userSchema = new Schema<IUserDocument>(
   }
 );
 
-const UserModel =
+export const UserModel =
   mongoose.models.User || model<IUserDocument>("User", userSchema);
 
-const defaultWeeklySchedule = [
-  {
-    day: "monday",
-    label: "Monday",
-    isAvailable: true,
-    slots: [
-      { id: "s1", start: "09:00", end: "12:00" },
-      { id: "s2", start: "15:00", end: "18:00" },
-    ],
-  },
-  {
-    day: "tuesday",
-    label: "Tuesday",
-    isAvailable: true,
-    slots: [
-      { id: "s3", start: "10:00", end: "13:00" },
-      { id: "s4", start: "16:00", end: "19:00" },
-    ],
-  },
-  {
-    day: "wednesday",
-    label: "Wednesday",
-    isAvailable: true,
-    slots: [
-      { id: "s5", start: "09:00", end: "12:00" },
-      { id: "s6", start: "14:00", end: "17:00" },
-    ],
-  },
-  {
-    day: "thursday",
-    label: "Thursday",
-    isAvailable: true,
-    slots: [{ id: "s7", start: "10:00", end: "14:00" }],
-  },
-  {
-    day: "friday",
-    label: "Friday",
-    isAvailable: false,
-    slots: [],
-  },
-  {
-    day: "saturday",
-    label: "Saturday",
-    isAvailable: true,
-    slots: [{ id: "s8", start: "15:00", end: "20:00" }],
-  },
-  {
-    day: "sunday",
-    label: "Sunday",
-    isAvailable: true,
-    slots: [
-      { id: "s9", start: "09:00", end: "12:00" },
-      { id: "s10", start: "14:00", end: "18:00" },
-    ],
-  },
+export const defaultAvailabilitySlots: IAvailabilitySlot[] = [
+  { day: "SATURDAY", enabled: true, startTime: "18:00", endTime: "21:00" },
+  { day: "SUNDAY", enabled: true, startTime: "18:00", endTime: "21:00" },
+  { day: "MONDAY", enabled: false, startTime: "18:00", endTime: "21:00" },
+  { day: "TUESDAY", enabled: true, startTime: "17:00", endTime: "20:00" },
+  { day: "WEDNESDAY", enabled: false, startTime: "18:00", endTime: "21:00" },
+  { day: "THURSDAY", enabled: false, startTime: "18:00", endTime: "21:00" },
+  { day: "FRIDAY", enabled: false, startTime: "18:00", endTime: "21:00" },
 ];
 
 const getExpertDashboardFromDB = async (
@@ -161,17 +135,23 @@ const getExpertDashboardFromDB = async (
     Consultation.countDocuments({ status: "SCHEDULED" }),
     Consultation.countDocuments({ status: "ONGOING" }),
     Consultation.countDocuments({ status: "COMPLETED" }),
-    Consultation.find({ status: "PENDING" }).sort({ createdAt: -1 }).limit(10),
-    Consultation.find({ status: "SCHEDULED" }).sort({ scheduledDate: 1, createdAt: -1 }).limit(10),
+    Consultation.find({ status: "PENDING" })
+      .sort({ createdAt: -1 })
+      .limit(10),
+    Consultation.find({ status: "SCHEDULED" })
+      .sort({ scheduledAt: 1, scheduledDate: 1, createdAt: -1 })
+      .limit(10),
     Consultation.find({ status: "ONGOING" }).sort({ updatedAt: -1 }).limit(5),
     UserModel.findOne({
-      $or: [{ _id: expertUser.id }, { email: expertUser.email.toLowerCase().trim() }],
+      $or: [
+        { _id: expertUser.id },
+        { email: expertUser.email.toLowerCase().trim() },
+      ],
     }).catch(() => null),
   ]);
 
   const availabilityStatus =
-    (userDoc?.availabilityStatus as "AVAILABLE" | "BUSY" | "OFFLINE" | "PAUSED") ||
-    "AVAILABLE";
+    userDoc?.availabilityStatus === "UNAVAILABLE" ? "UNAVAILABLE" : "AVAILABLE";
 
   return {
     newRequests,
@@ -190,7 +170,10 @@ const getExpertProfileFromDB = async (
   expertUser: UserContext
 ): Promise<IExpertProfile> => {
   const userDoc = await UserModel.findOne({
-    $or: [{ _id: expertUser.id }, { email: expertUser.email.toLowerCase().trim() }],
+    $or: [
+      { _id: expertUser.id },
+      { email: expertUser.email.toLowerCase().trim() },
+    ],
   }).catch(() => null);
 
   if (userDoc) {
@@ -221,7 +204,8 @@ const getExpertProfileFromDB = async (
         "Over 14 years of research and field advisory experience in cereal and horticulture crops across Bangladesh.",
       experienceYears: userDoc.experienceYears || 14,
       qualification:
-        userDoc.qualification || "Ph.D. in Plant Pathology (BAU), M.Sc. in Agriculture",
+        userDoc.qualification ||
+        "Ph.D. in Plant Pathology (BAU), M.Sc. in Agriculture",
       institution:
         userDoc.institution ||
         "Bangladesh Agricultural University (BAU) / AgriNova Advisory Board",
@@ -270,7 +254,10 @@ const updateExpertProfileInDB = async (
   payload: Partial<IExpertProfile>
 ): Promise<IExpertProfile> => {
   const filter = {
-    $or: [{ _id: expertUser.id }, { email: expertUser.email.toLowerCase().trim() }],
+    $or: [
+      { _id: expertUser.id },
+      { email: expertUser.email.toLowerCase().trim() },
+    ],
   };
 
   const updateData: Record<string, unknown> = { ...payload };
@@ -278,7 +265,11 @@ const updateExpertProfileInDB = async (
     updateData.image = payload.avatar;
   }
 
-  await UserModel.findOneAndUpdate(filter, { $set: updateData }, { upsert: true });
+  await UserModel.findOneAndUpdate(
+    filter,
+    { $set: updateData },
+    { upsert: true }
+  );
   return getExpertProfileFromDB(expertUser);
 };
 
@@ -286,38 +277,89 @@ const getExpertAvailabilityFromDB = async (
   expertUser: UserContext
 ): Promise<IExpertAvailability> => {
   const userDoc = await UserModel.findOne({
-    $or: [{ _id: expertUser.id }, { email: expertUser.email.toLowerCase().trim() }],
+    $or: [
+      { _id: expertUser.id },
+      { email: expertUser.email.toLowerCase().trim() },
+    ],
   }).catch(() => null);
 
-  const schedule =
-    userDoc?.weeklySchedule && Array.isArray(userDoc.weeklySchedule) && userDoc.weeklySchedule.length > 0
-      ? userDoc.weeklySchedule
-      : defaultWeeklySchedule;
+  const slots =
+    userDoc?.availabilitySlots &&
+    Array.isArray(userDoc.availabilitySlots) &&
+    userDoc.availabilitySlots.length > 0
+      ? userDoc.availabilitySlots
+      : defaultAvailabilitySlots;
 
   return {
     expertId: expertUser.id,
-    isAcceptingConsultations: userDoc?.isAcceptingConsultations !== false,
-    timezone: userDoc?.timezone || "Asia/Dhaka (GMT+6)",
-    slotDurationMinutes: userDoc?.slotDurationMinutes || 30,
-    weeklySchedule: schedule as IExpertAvailability["weeklySchedule"],
-    customDatesOff: userDoc?.customDatesOff || ["2026-10-15", "2026-12-16"],
+    availabilityStatus: userDoc?.availabilityStatus === "UNAVAILABLE" ? "UNAVAILABLE" : "AVAILABLE",
+    availabilitySlots: slots as IAvailabilitySlot[],
   };
 };
 
 const updateExpertAvailabilityInDB = async (
   expertUser: UserContext,
-  payload: Partial<IExpertAvailability> & { availabilityStatus?: string }
+  payload: {
+    availabilityStatus: "AVAILABLE" | "UNAVAILABLE";
+    availabilitySlots: IAvailabilitySlot[];
+  }
 ): Promise<IExpertAvailability> => {
-  const filter = {
-    $or: [{ _id: expertUser.id }, { email: expertUser.email.toLowerCase().trim() }],
-  };
+  const { availabilityStatus, availabilitySlots } = payload;
 
-  const updateData: Record<string, unknown> = { ...payload };
-  if (payload.availabilityStatus) {
-    updateData.availabilityStatus = payload.availabilityStatus;
+  if (!["AVAILABLE", "UNAVAILABLE"].includes(availabilityStatus)) {
+    throw new AppError(400, "Invalid availability status");
   }
 
-  await UserModel.findOneAndUpdate(filter, { $set: updateData }, { upsert: true });
+  if (!Array.isArray(availabilitySlots)) {
+    throw new AppError(400, "availabilitySlots must be an array");
+  }
+
+  // Validate duplicate weekdays
+  const seenDays = new Set<WeekDay>();
+  for (const slot of availabilitySlots) {
+    if (seenDays.has(slot.day)) {
+      throw new AppError(
+        400,
+        `Duplicate weekday '${slot.day}' is not allowed in availability slots.`
+      );
+    }
+    seenDays.add(slot.day);
+
+    if (slot.enabled) {
+      if (!slot.startTime || !slot.endTime) {
+        throw new AppError(
+          400,
+          `startTime and endTime are required for enabled day '${slot.day}'.`
+        );
+      }
+
+      if (slot.startTime >= slot.endTime) {
+        throw new AppError(
+          400,
+          `startTime (${slot.startTime}) must be earlier than endTime (${slot.endTime}) for '${slot.day}'.`
+        );
+      }
+    }
+  }
+
+  const filter = {
+    $or: [
+      { _id: expertUser.id },
+      { email: expertUser.email.toLowerCase().trim() },
+    ],
+  };
+
+  await UserModel.findOneAndUpdate(
+    filter,
+    {
+      $set: {
+        availabilityStatus,
+        availabilitySlots,
+      },
+    },
+    { upsert: true }
+  );
+
   return getExpertAvailabilityFromDB(expertUser);
 };
 
@@ -337,12 +379,17 @@ const getAllExpertsFromDB = async () => {
         title: "Senior Agronomist & Plant Pathologist",
         avatar:
           "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80",
-        specialization: ["Plant Pathology", "Crop Protection", "Soil Management"],
+        specialization: [
+          "Plant Pathology",
+          "Crop Protection",
+          "Soil Management",
+        ],
         rating: 4.9,
         ratingCount: 128,
         experienceYears: 14,
         consultationFee: 500,
         isVerified: true,
+        availabilityStatus: "AVAILABLE",
       },
     ];
   }

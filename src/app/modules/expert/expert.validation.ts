@@ -5,6 +5,7 @@ const updateExpertProfileValidationSchema = z.object({
     name: z.string().optional(),
     phone: z.string().optional(),
     avatar: z.string().optional(),
+    profileImage: z.string().optional(),
     title: z.string().optional(),
     specialization: z.union([z.array(z.string()), z.string()]).optional(),
     bio: z.string().optional(),
@@ -17,35 +18,36 @@ const updateExpertProfileValidationSchema = z.object({
   }),
 });
 
+const AvailabilitySlotSchema = z.object({
+  day: z.enum([
+    "SATURDAY",
+    "SUNDAY",
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+  ]),
+  enabled: z.boolean(),
+  startTime: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Invalid startTime format (HH:mm)")
+    .optional(),
+  endTime: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Invalid endTime format (HH:mm)")
+    .optional(),
+});
+
 const updateAvailabilityValidationSchema = z.object({
   body: z.object({
-    isAcceptingConsultations: z.boolean().optional(),
-    timezone: z.string().optional(),
-    slotDurationMinutes: z.number().optional(),
-    weeklySchedule: z
-      .array(
-        z.object({
-          day: z.string(),
-          label: z.string(),
-          isAvailable: z.boolean(),
-          slots: z.array(
-            z.object({
-              id: z.string(),
-              start: z.string(),
-              end: z.string(),
-            })
-          ),
-        })
-      )
-      .optional(),
-    customDatesOff: z.array(z.string()).optional(),
-    availabilityStatus: z
-      .enum(["AVAILABLE", "BUSY", "OFFLINE", "PAUSED"])
-      .optional(),
+    availabilityStatus: z.enum(["AVAILABLE", "UNAVAILABLE"]),
+    availabilitySlots: z.array(AvailabilitySlotSchema),
   }),
 });
 
 export const ExpertValidations = {
   updateExpertProfileValidationSchema,
   updateAvailabilityValidationSchema,
+  AvailabilitySlotSchema,
 };

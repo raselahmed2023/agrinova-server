@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 const GEMINI_DISEASE_MODEL =
   process.env.GEMINI_DISEASE_MODEL ||
   process.env.GEMINI_MODEL ||
-  "gemini-2.5-flash";
+  "gemini-3.6-flash";
 
 const getGeminiApiKeys = (): string[] => {
   const keys = [

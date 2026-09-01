@@ -1,94 +1,91 @@
-import OpenAI from "openai";
+const GROQ_API_URL =
+  "https://api.groq.com/openai/v1/chat/completions";
 
-const getGroqClient = (apiKey: string) => {
-  return new OpenAI({
-    apiKey,
-    baseURL: "https://api.groq.com/openai/v1",
-  });
-};
+const getGroqKeys = () =>
+  [
+    process.env.GROQ_API_KEY_1,
+    process.env.GROQ_API_KEY_2,
+  ].filter(Boolean) as string[];
 
-const cleanThinking = (text: string) => {
-  return text
-    .replace(/<think>[\s\S]*?<\/think>/gi, "")
-    .trim();
-};
-
-const generateWithGroqKey = async (
-  apiKey: string,
+export const generateWithGroq = async (
   systemPrompt: string,
   userPrompt: string
 ): Promise<string> => {
-  const client = getGroqClient(apiKey);
+  const apiKeys = getGroqKeys();
 
-  const response =
-    await client.chat.completions.create({
-      model: "qwen/qwen3.6-27b",
-
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: userPrompt,
-        },
-      ],
-
-      temperature: 0.4,
-      max_tokens: 2000,
-    });
-
-  const content =
-    response.choices[0]?.message?.content;
-
-  if (!content) {
+  if (apiKeys.length === 0) {
     throw new Error(
-      "Groq returned an empty response"
+      "No Groq API key is configured"
     );
   }
 
-  return cleanThinking(content);
+  let lastError =
+    "Groq request failed";
+
+  for (const apiKey of apiKeys) {
+    try {
+      const response = await fetch(
+        GROQ_API_URL,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model:
+              "openai/gpt-oss-20b",
+            messages: [
+              {
+                role: "system",
+                content: systemPrompt,
+              },
+              {
+                role: "user",
+                content: userPrompt,
+              },
+            ],
+            temperature: 0.4,
+            max_tokens: 900,
+          }),
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        lastError =
+          data?.error?.message ||
+          `Groq request failed with status ${response.status}`;
+
+        console.error(
+          "Groq key failed:",
+          lastError
+        );
+
+        continue;
+      }
+
+      const answer =
+        data?.choices?.[0]?.message
+          ?.content;
+
+      if (!answer?.trim()) {
+        lastError =
+          "Groq returned an empty response";
+        continue;
+      }
+
+      return answer.trim();
+    } catch (error) {
+      lastError =
+        error instanceof Error
+          ? error.message
+          : "Groq request failed";
+    }
+  }
+
+  throw new Error(lastError);
 };
-
-export const generateRecommendationWithGroq =
-  async (
-    systemPrompt: string,
-    userPrompt: string
-  ): Promise<string> => {
-    const apiKey =
-      process.env.GROQ_API_KEY_1;
-
-    if (!apiKey) {
-      throw new Error(
-        "GROQ_API_KEY_1 is not configured"
-      );
-    }
-
-    return generateWithGroqKey(
-      apiKey,
-      systemPrompt,
-      userPrompt
-    );
-  };
-
-export const generateAssistantWithGroq =
-  async (
-    systemPrompt: string,
-    userPrompt: string
-  ): Promise<string> => {
-    const apiKey =
-      process.env.GROQ_API_KEY_2;
-
-    if (!apiKey) {
-      throw new Error(
-        "GROQ_API_KEY_2 is not configured"
-      );
-    }
-
-    return generateWithGroqKey(
-      apiKey,
-      systemPrompt,
-      userPrompt
-    );
-  };

@@ -24,4 +24,17 @@ const startServer = async () => {
   }
 };
 
+
+console.log("AI ENV CHECK", {
+  groq1: Boolean(process.env.GROQ_API_KEY_1),
+  groq2: Boolean(process.env.GROQ_API_KEY_2),
+  openrouter1: Boolean(
+    process.env.OPENROUTER_API_KEY_1
+  ),
+  openrouter2: Boolean(
+    process.env.OPENROUTER_API_KEY_2
+  ),
+});
+
+
 startServer();

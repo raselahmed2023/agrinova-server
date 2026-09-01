@@ -7,6 +7,22 @@ import { ExpertValidations } from "./expert.validation";
 
 const router = Router();
 
+// GET & PATCH /api/v1/experts/me (User Specified)
+router.get(
+  "/me",
+  authenticate,
+  authorize("EXPERT", "ADMIN"),
+  ExpertControllers.getExpertProfile
+);
+
+router.patch(
+  "/me",
+  authenticate,
+  authorize("EXPERT", "ADMIN"),
+  validateRequest(ExpertValidations.updateExpertProfileValidationSchema),
+  ExpertControllers.updateExpertProfile
+);
+
 // GET /api/v1/experts/me/dashboard
 router.get(
   "/me/dashboard",
@@ -31,7 +47,7 @@ router.patch(
   ExpertControllers.updateExpertAvailability
 );
 
-// Profile
+// Profile Aliases
 router.get(
   "/profile",
   authenticate,
@@ -40,6 +56,14 @@ router.get(
 );
 
 router.put(
+  "/profile",
+  authenticate,
+  authorize("EXPERT", "ADMIN"),
+  validateRequest(ExpertValidations.updateExpertProfileValidationSchema),
+  ExpertControllers.updateExpertProfile
+);
+
+router.patch(
   "/profile",
   authenticate,
   authorize("EXPERT", "ADMIN"),

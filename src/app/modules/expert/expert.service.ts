@@ -261,8 +261,18 @@ const updateExpertProfileInDB = async (
   };
 
   const updateData: Record<string, unknown> = { ...payload };
+  delete updateData.email;
+  delete updateData.role;
+  delete updateData.status;
+  delete updateData._id;
+  delete updateData.id;
+
   if (payload.avatar) {
     updateData.image = payload.avatar;
+  }
+  if ((payload as any).profileImage) {
+    updateData.image = (payload as any).profileImage;
+    updateData.avatar = (payload as any).profileImage;
   }
 
   await UserModel.findOneAndUpdate(

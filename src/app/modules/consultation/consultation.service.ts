@@ -507,7 +507,7 @@ const updateConsultationStatusInDB = async (
 const addRecommendationInDB = async (
   consultationId: string,
   payload: RecommendationPayload,
-  _expertUser: UserContext
+  expertUser: UserContext
 ) => {
   let consultation = null;
   if (isValidObjectId(consultationId)) {
@@ -522,11 +522,26 @@ const addRecommendationInDB = async (
     throw new AppError(404, "Consultation not found");
   }
 
+  // Ownership Check
+  if (
+    consultation.expertId &&
+    consultation.expertId !== expertUser.id &&
+    expertUser.role !== "ADMIN"
+  ) {
+    throw new AppError(403, "You are not assigned to this consultation.");
+  }
+
+  // State Rule: ONGOING only
+  if (consultation.status !== "ONGOING" && consultation.status !== "COMPLETED") {
+    throw new AppError(
+      409,
+      `Cannot add recommendation to consultation with status '${consultation.status}'. Status must be ONGOING.`
+    );
+  }
+
   const recommendationText =
     payload.recommendation || payload.diagnosis || "Follow prescribed treatment";
 
-  consultation.status = "COMPLETED";
-  consultation.completedAt = new Date();
   consultation.recommendation = recommendationText;
   consultation.recommendations = {
     diagnosis: payload.diagnosis || recommendationText,
@@ -536,6 +551,55 @@ const addRecommendationInDB = async (
     additionalNotes: payload.additionalNotes,
     createdAt: new Date(),
   };
+
+  await consultation.save();
+  return consultation;
+};
+
+const completeConsultationInDB = async (
+  consultationId: string,
+  expertUser: UserContext
+) => {
+  let consultation = null;
+  if (isValidObjectId(consultationId)) {
+    consultation = await Consultation.findById(consultationId);
+  } else {
+    consultation = await Consultation.findOne({
+      $or: [{ _id: consultationId }, { id: consultationId }],
+    });
+  }
+
+  if (!consultation) {
+    throw new AppError(404, "Consultation not found");
+  }
+
+  // Ownership Check
+  if (
+    consultation.expertId &&
+    consultation.expertId !== expertUser.id &&
+    expertUser.role !== "ADMIN"
+  ) {
+    throw new AppError(403, "You are not assigned to this consultation.");
+  }
+
+  // State Rule: Must be ONGOING
+  if (consultation.status !== "ONGOING") {
+    throw new AppError(
+      409,
+      `Cannot complete consultation with status '${consultation.status}'. Consultation must be in ONGOING status.`
+    );
+  }
+
+  // Recommendation must exist
+  if (!consultation.recommendation && !consultation.recommendations?.diagnosis) {
+    throw new AppError(
+      400,
+      "Expert recommendation is required before completing consultation."
+    );
+  }
+
+  consultation.status = "COMPLETED";
+  consultation.completedAt = new Date();
 
   await consultation.save();
   return consultation;
@@ -595,9 +659,22 @@ const startConsultationInDB = async (
 
   if (!["SCHEDULED", "ONGOING"].includes(consultation.status)) {
     throw new AppError(
-      400,
+      409,
       `Cannot start consultation with status '${consultation.status}'. Status must be SCHEDULED.`
     );
+  }
+
+  const cleanId = (consultation._id || consultation.id || consultationId).toString();
+  const videoRoomId = consultation.videoRoomId || `agrinova-consultation-${cleanId}`;
+  const meetingLink = consultation.meetingLink || `https://meet.jit.si/${videoRoomId}`;
+
+  // If already ongoing, return current meeting details directly
+  if (consultation.status === "ONGOING") {
+    return {
+      status: consultation.status,
+      videoRoomId,
+      meetingLink,
+    };
   }
 
   if (!consultation.scheduledAt) {
@@ -627,10 +704,6 @@ const startConsultationInDB = async (
     );
   }
 
-  const cleanId = (consultation._id || consultation.id || consultationId).toString();
-  const videoRoomId = `agrinova-consultation-${cleanId}`;
-  const meetingLink = `https://meet.jit.si/${videoRoomId}`;
-
   consultation.status = "ONGOING";
   consultation.videoRoomId = videoRoomId;
   consultation.meetingLink = meetingLink;
@@ -656,7 +729,8 @@ export const ConsultationServices = {
   rejectConsultationInDB,
   scheduleConsultationInDB,
   startConsultationInDB,
-  updateConsultationStatusInDB,
   addRecommendationInDB,
+  completeConsultationInDB,
+  updateConsultationStatusInDB,
   getExpertConsultationStatsFromDB,
 };

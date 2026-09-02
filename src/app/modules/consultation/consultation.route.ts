@@ -34,6 +34,13 @@ router.get(
   ConsultationControllers.getExpertConsultations
 );
 
+router.get(
+  "/expert/requests",
+  authenticate,
+  authorize("EXPERT", "ADMIN"),
+  ConsultationControllers.getExpertConsultations
+);
+
 // Get single consultation
 router.get(
   "/:consultationId",
@@ -75,21 +82,37 @@ router.patch(
   ConsultationControllers.startConsultation
 );
 
+// Add prescription & recommendation (PATCH & POST)
+router.patch(
+  "/:consultationId/recommendation",
+  authenticate,
+  authorize("EXPERT", "ADMIN"),
+  validateRequest(ConsultationValidations.recommendationValidationSchema),
+  ConsultationControllers.addRecommendation
+);
+
+router.post(
+  "/:consultationId/recommendation",
+  authenticate,
+  authorize("EXPERT", "ADMIN"),
+  validateRequest(ConsultationValidations.recommendationValidationSchema),
+  ConsultationControllers.addRecommendation
+);
+
+// Complete consultation (ONGOING -> COMPLETED)
+router.patch(
+  "/:consultationId/complete",
+  authenticate,
+  authorize("EXPERT", "ADMIN"),
+  ConsultationControllers.completeConsultation
+);
+
 // Update general status
 router.patch(
   "/:consultationId/status",
   authenticate,
   validateRequest(ConsultationValidations.updateStatusValidationSchema),
   ConsultationControllers.updateConsultationStatus
-);
-
-// Add prescription & recommendation
-router.post(
-  "/:consultationId/recommendation",
-  authenticate,
-  authorize("EXPERT", "ADMIN"),
-  validateRequest(ConsultationValidations.createRecommendationValidationSchema),
-  ConsultationControllers.addRecommendation
 );
 
 export const ConsultationRoutes = router;

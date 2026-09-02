@@ -52,10 +52,14 @@ const updateStatusValidationSchema = z.object({
   }),
 });
 
-const createRecommendationValidationSchema = z.object({
+const recommendationValidationSchema = z.object({
   body: z.object({
+    recommendation: z
+      .string({ message: "Recommendation is required" })
+      .trim()
+      .min(10, "Recommendation must be at least 10 characters")
+      .max(3000, "Recommendation cannot exceed 3000 characters"),
     diagnosis: z.string().optional(),
-    recommendation: z.string().optional(),
     prescriptions: z.array(z.string()).optional(),
     treatmentSteps: z.array(z.string()).optional(),
     followUpDate: z.string().optional(),
@@ -68,5 +72,6 @@ export const ConsultationValidations = {
   rejectConsultationValidationSchema,
   scheduleConsultationValidationSchema,
   updateStatusValidationSchema,
-  createRecommendationValidationSchema,
+  recommendationValidationSchema,
+  createRecommendationValidationSchema: recommendationValidationSchema,
 };

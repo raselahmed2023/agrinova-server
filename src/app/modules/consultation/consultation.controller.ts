@@ -149,6 +149,27 @@ const scheduleConsultation = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const startConsultation = catchAsync(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new AppError(401, "Authentication required");
+  }
+
+  const { consultationId, id } = req.params;
+  const targetId = (consultationId || id) as string;
+
+  const result = await ConsultationServices.startConsultationInDB(
+    targetId,
+    req.user
+  );
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Consultation video call started successfully",
+    data: result,
+  });
+});
+
 const updateConsultationStatus = catchAsync(
   async (req: Request, res: Response) => {
     if (!req.user) {
@@ -221,6 +242,7 @@ export const ConsultationControllers = {
   acceptConsultation,
   rejectConsultation,
   scheduleConsultation,
+  startConsultation,
   updateConsultationStatus,
   addRecommendation,
   getExpertStats,

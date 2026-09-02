@@ -67,6 +67,14 @@ router.patch(
   ConsultationControllers.scheduleConsultation
 );
 
+// Start video consultation (SCHEDULED -> ONGOING with Jitsi room ID)
+router.patch(
+  "/:consultationId/start",
+  authenticate,
+  authorize("EXPERT", "ADMIN"),
+  ConsultationControllers.startConsultation
+);
+
 // Update general status
 router.patch(
   "/:consultationId/status",

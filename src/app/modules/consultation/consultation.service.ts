@@ -12,7 +12,9 @@ import {
 } from "../expert/expert.service";
 import type { WeekDay, IAvailabilitySlot } from "../expert/expert.interface";
 
+const EARLY_JOIN_MINUTES = 15;
 const CONSULTATION_DURATION_MINUTES = 30;
+const LATE_JOIN_GRACE_MINUTES = 30;
 
 interface UserContext {
   id: string;
@@ -431,9 +433,10 @@ const scheduleConsultationInDB = async (
   }
 
   // All checks passed! Update consultation
+  const cleanId = (consultation._id || consultation.id || consultationId).toString();
+  const videoRoomId = `agrinova-consultation-${cleanId}`;
   const generatedMeetingLink =
-    payload.meetingLink ||
-    `https://meet.agrinova.io/room/${consultation._id.toString()}`;
+    payload.meetingLink || `https://meet.jit.si/${videoRoomId}`;
 
   consultation.status = "SCHEDULED";
   consultation.scheduledAt = scheduledAtDate;
@@ -443,7 +446,7 @@ const scheduleConsultationInDB = async (
     year: "numeric",
   });
   consultation.scheduledTime = scheduledTimeStr;
-  consultation.videoRoomId = `room-${consultation._id.toString()}`;
+  consultation.videoRoomId = videoRoomId;
   consultation.meetingLink = generatedMeetingLink;
 
   if (payload.notes) {
@@ -565,6 +568,85 @@ const getExpertConsultationStatsFromDB = async (_expertUser: UserContext) => {
   };
 };
 
+const startConsultationInDB = async (
+  consultationId: string,
+  expertUser: UserContext
+) => {
+  let consultation = null;
+  if (isValidObjectId(consultationId)) {
+    consultation = await Consultation.findById(consultationId);
+  } else {
+    consultation = await Consultation.findOne({
+      $or: [{ _id: consultationId }, { id: consultationId }],
+    });
+  }
+
+  if (!consultation) {
+    throw new AppError(404, "Consultation not found");
+  }
+
+  if (
+    consultation.expertId &&
+    consultation.expertId !== expertUser.id &&
+    expertUser.role !== "ADMIN"
+  ) {
+    throw new AppError(403, "You are not assigned to this consultation.");
+  }
+
+  if (!["SCHEDULED", "ONGOING"].includes(consultation.status)) {
+    throw new AppError(
+      400,
+      `Cannot start consultation with status '${consultation.status}'. Status must be SCHEDULED.`
+    );
+  }
+
+  if (!consultation.scheduledAt) {
+    throw new AppError(400, "Consultation has not been scheduled yet.");
+  }
+
+  const scheduledTime = new Date(consultation.scheduledAt).getTime();
+  const now = Date.now();
+
+  const earliestStart = scheduledTime - EARLY_JOIN_MINUTES * 60 * 1000;
+  const latestStart =
+    scheduledTime +
+    (CONSULTATION_DURATION_MINUTES + LATE_JOIN_GRACE_MINUTES) * 60 * 1000;
+
+  if (now < earliestStart) {
+    const diffMinutes = Math.ceil((earliestStart - now) / (60 * 1000));
+    throw new AppError(
+      400,
+      `Video call window is not open yet. You can start the call ${EARLY_JOIN_MINUTES} minutes before scheduled time (in ~${diffMinutes} minutes).`
+    );
+  }
+
+  if (now > latestStart) {
+    throw new AppError(
+      400,
+      "Consultation call window has expired. Please reschedule the consultation."
+    );
+  }
+
+  const cleanId = (consultation._id || consultation.id || consultationId).toString();
+  const videoRoomId = `agrinova-consultation-${cleanId}`;
+  const meetingLink = `https://meet.jit.si/${videoRoomId}`;
+
+  consultation.status = "ONGOING";
+  consultation.videoRoomId = videoRoomId;
+  consultation.meetingLink = meetingLink;
+  if (!consultation.startedAt) {
+    consultation.startedAt = new Date();
+  }
+
+  await consultation.save();
+
+  return {
+    status: consultation.status,
+    videoRoomId: consultation.videoRoomId,
+    meetingLink: consultation.meetingLink,
+  };
+};
+
 export const ConsultationServices = {
   createConsultationIntoDB,
   getAllConsultationsFromDB,
@@ -573,6 +655,7 @@ export const ConsultationServices = {
   acceptConsultationInDB,
   rejectConsultationInDB,
   scheduleConsultationInDB,
+  startConsultationInDB,
   updateConsultationStatusInDB,
   addRecommendationInDB,
   getExpertConsultationStatsFromDB,

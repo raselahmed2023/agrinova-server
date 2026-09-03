@@ -6,14 +6,14 @@ import { ProductRoutes } from "../modules/product/product.route";
 import financeRouter from "../modules/finance/finance.route.js";
 import { PurchaseRequestRoutes } from "../modules/purchase-request/purchaseRequest.route";
 import investmentRouter from "../modules/investment/investment.route.js";
+import { AdminRoutes } from "../modules/admin/admin.route";
 
 const router = Router();
 
 router.get("/health", (_req, res) => {
   res.status(200).json({
     success: true,
-    message:
-      "AgriNova API health check successful",
+    message: "AgriNova API health check successful",
   });
 });
 
@@ -22,27 +22,22 @@ const moduleRoutes = [
     path: "/farms",
     route: FarmRoutes,
   },
-
   {
     path: "/weather",
     route: WeatherRoutes,
   },
-
   {
     path: "/ai",
     route: aiRouter,
   },
-
   {
     path: "/marketplace",
     route: ProductRoutes,
   },
-
   {
     path: "/purchase-requests",
     route: PurchaseRequestRoutes,
   },
-
   {
     path: "/finance",
     route: financeRouter,
@@ -51,13 +46,14 @@ const moduleRoutes = [
     path: "/investments",
     route: investmentRouter,
   },
+  {
+    path: "/admin",
+    route: AdminRoutes,
+  },
 ];
 
 moduleRoutes.forEach((route) => {
-  router.use(
-    route.path,
-    route.route
-  );
+  router.use(route.path, route.route);
 });
 
 export default router;

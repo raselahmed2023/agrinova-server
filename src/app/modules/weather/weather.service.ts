@@ -1,15 +1,57 @@
 import axios from "axios";
 
-type CachedWeather = {
-  data: unknown;
+const WEATHERAPI_KEY =
+  process.env.WEATHERAPI_KEY;
+
+const CACHE_TTL =
+  10 * 60 * 1000;
+
+type WeatherSource =
+  | "open-meteo"
+  | "weatherapi";
+
+type WeatherResult = {
+  current: {
+    temperature: number;
+    condition: string;
+    code: number;
+    humidity: number;
+    windSpeed: number;
+    rainProb: number;
+  };
+
+  recommendation: string;
+
+  advisories: {
+    title: string;
+    description: string;
+  }[];
+
+  forecast: {
+    day: string;
+    code: number;
+    temp: string;
+    risk: string;
+  }[];
+
+  source: WeatherSource;
+};
+
+type CacheItem = {
+  data: WeatherResult;
   expiresAt: number;
 };
 
-const weatherCache = new Map<string, CachedWeather>();
+const cache =
+  new Map<string, CacheItem>();
 
-const CACHE_TTL = 10 * 60 * 1000;
+/* =========================
+   HELPERS
+========================= */
 
-const getWeatherCondition = (code: number) => {
+const getCondition = (
+  code: number
+) => {
   if (code === 0) return "Clear sky";
   if (code === 1) return "Mainly clear";
   if (code === 2) return "Partly cloudy";
@@ -46,7 +88,83 @@ const getWeatherCondition = (code: number) => {
   return "Unknown";
 };
 
-const getAgronomicRecommendation = (
+const mapConditionToCode = (
+  condition: string
+) => {
+  const text =
+    condition.toLowerCase();
+
+  if (text.includes("thunder")) return 95;
+
+  if (
+    text.includes("snow") ||
+    text.includes("sleet") ||
+    text.includes("ice")
+  ) {
+    return 71;
+  }
+
+  if (
+    text.includes("rain") ||
+    text.includes("shower")
+  ) {
+    return 61;
+  }
+
+  if (text.includes("drizzle")) {
+    return 51;
+  }
+
+  if (
+    text.includes("fog") ||
+    text.includes("mist")
+  ) {
+    return 45;
+  }
+
+  if (text.includes("overcast")) {
+    return 3;
+  }
+
+  if (
+    text.includes("partly cloudy")
+  ) {
+    return 2;
+  }
+
+  if (text.includes("cloud")) {
+    return 3;
+  }
+
+  if (
+    text.includes("sunny") ||
+    text.includes("clear")
+  ) {
+    return 0;
+  }
+
+  return 2;
+};
+
+const getRisk = (
+  rainProb: number,
+  code: number
+) => {
+  if (
+    rainProb >= 60 ||
+    code >= 95
+  ) {
+    return "High Risk";
+  }
+
+  if (rainProb >= 30) {
+    return "Moderate Risk";
+  }
+
+  return "Low Risk";
+};
+
+const getRecommendation = (
   temperature: number,
   humidity: number,
   windSpeed: number,
@@ -71,19 +189,22 @@ const getAgronomicRecommendation = (
   return "Weather conditions are generally suitable for normal farming activities. Continue regular crop monitoring.";
 };
 
-const getRiskAdvisories = (
+const getAdvisories = (
   temperature: number,
   humidity: number,
   windSpeed: number,
   rainProb: number,
-  weatherCode: number
+  code: number
 ) => {
   const advisories: {
     title: string;
     description: string;
   }[] = [];
 
-  if (rainProb >= 50 || weatherCode >= 51) {
+  if (
+    rainProb >= 50 ||
+    code >= 51
+  ) {
     advisories.push({
       title: "Rainfall Risk",
       description:
@@ -101,192 +222,455 @@ const getRiskAdvisories = (
 
   if (humidity >= 85) {
     advisories.push({
-      title: "High Humidity Alert",
+      title:
+        "High Humidity Alert",
       description:
-        "High humidity may increase the risk of fungal disease. Inspect crops regularly for symptoms.",
+        "High humidity may increase fungal disease risk. Inspect crops regularly for symptoms.",
     });
   }
 
   if (windSpeed >= 25) {
     advisories.push({
-      title: "Strong Wind Alert",
+      title:
+        "Strong Wind Alert",
       description:
-        "Strong winds may affect spraying and vulnerable crops. Delay chemical spraying if necessary.",
+        "Strong winds may affect spraying and vulnerable crops. Delay spraying if necessary.",
     });
   }
 
   return advisories;
 };
 
-const getWeather = async (
+const makeResult = (
+  source: WeatherSource,
+  temperature: number,
+  condition: string,
+  code: number,
+  humidity: number,
+  windSpeed: number,
+  rainProb: number,
+  forecast: WeatherResult["forecast"]
+): WeatherResult => {
+  return {
+    current: {
+      temperature,
+      condition,
+      code,
+      humidity,
+      windSpeed,
+      rainProb,
+    },
+
+    recommendation:
+      getRecommendation(
+        temperature,
+        humidity,
+        windSpeed,
+        rainProb
+      ),
+
+    advisories:
+      getAdvisories(
+        temperature,
+        humidity,
+        windSpeed,
+        rainProb,
+        code
+      ),
+
+    forecast,
+
+    source,
+  };
+};
+
+/* =========================
+   OPEN-METEO
+========================= */
+
+const fetchOpenMeteo = async (
   lat: number,
   lon: number
-) => {
-  const cacheKey = `${lat.toFixed(3)}:${lon.toFixed(3)}`;
-
-  const cached = weatherCache.get(cacheKey);
-
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.data;
-  }
-
-  try {
-    const response = await axios.get(
+): Promise<WeatherResult> => {
+  const response =
+    await axios.get(
       "https://api.open-meteo.com/v1/forecast",
       {
         params: {
           latitude: lat,
           longitude: lon,
+
           current:
             "temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m",
+
           daily:
             "weather_code,temperature_2m_max,precipitation_probability_max",
-          timezone: "Asia/Dhaka",
+
+          timezone:
+            "Asia/Dhaka",
         },
+
         timeout: 10000,
-        headers: {
-          Accept: "application/json",
-        },
       }
     );
 
-    const weather = response.data;
+  const current =
+    response.data?.current;
 
-    const current = weather.current;
-    const daily = weather.daily;
+  const daily =
+    response.data?.daily;
 
-    if (!current || !daily) {
-      throw new Error(
-        "Invalid weather data received from provider."
-      );
-    }
-
-    const todayRainProb = Number(
-      daily.precipitation_probability_max?.[0] ?? 0
+  if (!current || !daily) {
+    throw new Error(
+      "Invalid Open-Meteo response."
     );
+  }
 
-    const temperature = Number(
+  const temperature =
+    Number(
       current.temperature_2m ?? 0
     );
 
-    const humidity = Number(
-      current.relative_humidity_2m ?? 0
+  const humidity =
+    Number(
+      current.relative_humidity_2m ??
+        0
     );
 
-    const windSpeed = Number(
+  const windSpeed =
+    Number(
       current.wind_speed_10m ?? 0
     );
 
-    const weatherCode = Number(
+  const code =
+    Number(
       current.weather_code ?? 0
     );
 
-    const forecast = [];
+  const rainProb =
+    Number(
+      daily
+        .precipitation_probability_max?.[0] ??
+        0
+    );
 
-    for (let dayOffset = 0; dayOffset < 3; dayOffset++) {
-      const forecastCode = Number(
-        daily.weather_code?.[dayOffset] ?? 0
-      );
+  const forecast =
+    [0, 1, 2].map(
+      (index) => {
+        const dayCode =
+          Number(
+            daily
+              .weather_code?.[
+              index
+            ] ?? 0
+          );
 
-      const maxTemperature = Number(
-        daily.temperature_2m_max?.[dayOffset] ?? 0
-      );
+        const temp =
+          Number(
+            daily
+              .temperature_2m_max?.[
+              index
+            ] ?? 0
+          );
 
-      const rainProbability = Number(
-        daily.precipitation_probability_max?.[
-          dayOffset
-        ] ?? 0
-      );
+        const rain =
+          Number(
+            daily
+              .precipitation_probability_max?.[
+              index
+            ] ?? 0
+          );
 
-      let risk = "Low Risk";
+        return {
+          day:
+            index === 0
+              ? "Today"
+              : index === 1
+                ? "Tomorrow"
+                : "Day 3",
 
-      if (
-        rainProbability >= 60 ||
-        forecastCode >= 95
-      ) {
-        risk = "High Risk";
-      } else if (rainProbability >= 30) {
-        risk = "Moderate Risk";
+          code: dayCode,
+
+          temp:
+            `${Math.round(
+              temp
+            )}°C`,
+
+          risk:
+            getRisk(
+              rain,
+              dayCode
+            ),
+        };
       }
+    );
 
-      forecast.push({
-        day:
-          dayOffset === 0
-            ? "Today"
-            : dayOffset === 1
-              ? "Tomorrow"
-              : "Day 3",
-        code: forecastCode,
-        temp: `${Math.round(maxTemperature)}°C`,
-        risk,
-      });
-    }
+  return makeResult(
+    "open-meteo",
+    temperature,
+    getCondition(code),
+    code,
+    humidity,
+    windSpeed,
+    rainProb,
+    forecast
+  );
+};
 
-    const result = {
-      current: {
-        temperature,
-        condition: getWeatherCondition(weatherCode),
-        code: weatherCode,
-        humidity,
-        windSpeed,
-        rainProb: todayRainProb,
-      },
+/* =========================
+   WEATHERAPI FALLBACK
+========================= */
 
-      recommendation: getAgronomicRecommendation(
-        temperature,
-        humidity,
-        windSpeed,
-        todayRainProb
-      ),
+const fetchWeatherApi = async (
+  lat: number,
+  lon: number
+): Promise<WeatherResult> => {
+  if (!WEATHERAPI_KEY) {
+    throw new Error(
+      "WEATHERAPI_KEY is not configured."
+    );
+  }
 
-      advisories: getRiskAdvisories(
-        temperature,
-        humidity,
-        windSpeed,
-        todayRainProb,
-        weatherCode
-      ),
+  const response =
+    await axios.get(
+      "https://api.weatherapi.com/v1/forecast.json",
+      {
+        params: {
+          key: WEATHERAPI_KEY,
+          q: `${lat},${lon}`,
+          days: 3,
+          aqi: "no",
+          alerts: "no",
+        },
 
-      forecast,
-    };
+        timeout: 10000,
+      }
+    );
 
-    weatherCache.set(cacheKey, {
-      data: result,
-      expiresAt: Date.now() + CACHE_TTL,
-    });
+  const current =
+    response.data?.current;
 
-    return result;
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      const status = error.response?.status;
+  const days =
+    response.data?.forecast
+      ?.forecastday;
 
-      console.error("Weather API error:", {
-        status,
-        message: error.message,
-        data: error.response?.data,
-      });
+  if (
+    !current ||
+    !Array.isArray(days)
+  ) {
+    throw new Error(
+      "Invalid WeatherAPI response."
+    );
+  }
 
-      if (status === 429) {
-        const staleCache = weatherCache.get(cacheKey);
+  const condition =
+    String(
+      current.condition?.text ??
+        "Unknown"
+    );
 
-        if (staleCache?.data) {
-          return staleCache.data;
+  const code =
+    mapConditionToCode(
+      condition
+    );
+
+  const temperature =
+    Number(
+      current.temp_c ?? 0
+    );
+
+  const humidity =
+    Number(
+      current.humidity ?? 0
+    );
+
+  const windSpeed =
+    Number(
+      current.wind_kph ?? 0
+    );
+
+  const rainProb =
+    Number(
+      days[0]?.day
+        ?.daily_chance_of_rain ??
+        0
+    );
+
+  const forecast =
+    days
+      .slice(0, 3)
+      .map(
+        (
+          item: any,
+          index: number
+        ) => {
+          const conditionText =
+            String(
+              item?.day
+                ?.condition
+                ?.text ??
+                "Unknown"
+            );
+
+          const dayCode =
+            mapConditionToCode(
+              conditionText
+            );
+
+          const rain =
+            Number(
+              item?.day
+                ?.daily_chance_of_rain ??
+                0
+            );
+
+          const temp =
+            Number(
+              item?.day
+                ?.maxtemp_c ??
+                0
+            );
+
+          return {
+            day:
+              index === 0
+                ? "Today"
+                : index === 1
+                  ? "Tomorrow"
+                  : "Day 3",
+
+            code: dayCode,
+
+            temp:
+              `${Math.round(
+                temp
+              )}°C`,
+
+            risk:
+              getRisk(
+                rain,
+                dayCode
+              ),
+          };
         }
+      );
 
-        throw new Error(
-          "Weather service rate limit reached. Please try again shortly."
+  return makeResult(
+    "weatherapi",
+    temperature,
+    condition,
+    code,
+    humidity,
+    windSpeed,
+    rainProb,
+    forecast
+  );
+};
+
+/* =========================
+   MAIN SERVICE
+========================= */
+
+const getWeather = async (
+  lat: number,
+  lon: number
+): Promise<WeatherResult> => {
+  const cacheKey =
+    `${lat.toFixed(3)}:${lon.toFixed(3)}`;
+
+  const cached =
+    cache.get(cacheKey);
+
+  if (
+    cached &&
+    cached.expiresAt >
+      Date.now()
+  ) {
+    return cached.data;
+  }
+
+  let result:
+    | WeatherResult
+    | null = null;
+
+  try {
+    result =
+      await fetchOpenMeteo(
+        lat,
+        lon
+      );
+
+    console.log(
+      "Weather source: Open-Meteo"
+    );
+  } catch (error) {
+    if (
+      axios.isAxiosError(
+        error
+      )
+    ) {
+      console.warn(
+        `Open-Meteo failed: ${error.response?.status ?? "unknown"}`
+      );
+    } else {
+      console.warn(
+        "Open-Meteo failed."
+      );
+    }
+  }
+
+  if (!result) {
+    try {
+      result =
+        await fetchWeatherApi(
+          lat,
+          lon
+        );
+
+      console.log(
+        "Weather source: WeatherAPI"
+      );
+    } catch (error) {
+      if (
+        axios.isAxiosError(
+          error
+        )
+      ) {
+        console.error(
+          "WeatherAPI failed:",
+          error.response?.status,
+          error.response?.data
+        );
+      } else {
+        console.error(
+          "WeatherAPI failed:",
+          error
         );
       }
-
-      throw new Error(
-        `Weather provider request failed${
-          status ? ` (${status})` : ""
-        }.`
-      );
     }
-
-    throw error;
   }
+
+  if (result) {
+    cache.set(
+      cacheKey,
+      {
+        data: result,
+        expiresAt:
+          Date.now() +
+          CACHE_TTL,
+      }
+    );
+
+    return result;
+  }
+
+  if (cached?.data) {
+    return cached.data;
+  }
+
+  throw new Error(
+    "Weather providers are temporarily unavailable."
+  );
 };
 
 export const WeatherService = {

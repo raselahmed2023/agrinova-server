@@ -1,48 +1,76 @@
 import { Schema, model, Document } from "mongoose";
 
 export interface IFinance extends Document {
+  userId: string;
+  farmId?: string;
+
   type: "Income" | "Expense";
   amount: number;
   category: string;
-  farm?: string;
+
   date: Date;
   description?: string;
-  userId: string;
 }
 
 const financeSchema = new Schema<IFinance>(
   {
+    userId: {
+      type: String,
+      required: true,
+      index: true,
+    },
+
+    farmId: {
+      type: String,
+      default: "",
+      index: true,
+    },
+
     type: {
       type: String,
       enum: ["Income", "Expense"],
-      required: [true, "Transaction type is required"],
+      required: true,
     },
+
     amount: {
       type: Number,
-      required: [true, "Amount is required"],
+      required: true,
+      min: 0.01,
     },
+
     category: {
       type: String,
-      required: [true, "Category is required"],
+      required: true,
+      trim: true,
     },
-    farm: {
-      type: String,
-      default: "",
-    },
+
     date: {
       type: Date,
-      required: [true, "Date is required"],
+      required: true,
     },
+
     description: {
       type: String,
       default: "",
-    },
-    userId: {
-      type: String,
-      required: [true, "User ID is required"],
+      trim: true,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
-export const Finance = model<IFinance>("Finance", financeSchema);
+financeSchema.index({
+  userId: 1,
+  date: -1,
+});
+
+financeSchema.index({
+  userId: 1,
+  farmId: 1,
+});
+
+export const Finance = model<IFinance>(
+  "Finance",
+  financeSchema
+);

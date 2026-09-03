@@ -3,30 +3,41 @@ import {
   model,
 } from "mongoose";
 
+export type FarmType =
+  | "Crop"
+  | "Orchard"
+  | "Poultry"
+  | "Livestock"
+  | "Fishery";
+
 export interface IFarm {
   farmerId: string;
   farmerEmail: string;
 
   name: string;
+
+  farmType: FarmType;
+
   division: string;
   district: string;
-  landArea: number;
+  upazila: string;
 
-  unit:
+  landArea?: number;
+
+  unit?:
     | "Bigha"
     | "Acre"
     | "Hectare"
     | "Decimal";
 
-  soilType: string;
+  soilType?: string;
+
   coverImage?: string;
   description?: string;
 
   status:
     | "Active"
     | "Inactive";
-
-  activeCropsCount: number;
 }
 
 const farmSchema =
@@ -52,19 +63,39 @@ const farmSchema =
         trim: true,
       },
 
+      farmType: {
+        type: String,
+        enum: [
+          "Crop",
+          "Orchard",
+          "Poultry",
+          "Livestock",
+          "Fishery",
+        ],
+        required: true,
+      },
+
       division: {
         type: String,
         required: true,
+        trim: true,
       },
 
       district: {
         type: String,
         required: true,
+        trim: true,
+      },
+
+      upazila: {
+        type: String,
+        required: true,
+        trim: true,
       },
 
       landArea: {
         type: Number,
-        required: true,
+        min: 0.01,
       },
 
       unit: {
@@ -75,12 +106,11 @@ const farmSchema =
           "Hectare",
           "Decimal",
         ],
-        default: "Bigha",
       },
 
       soilType: {
         type: String,
-        required: true,
+        trim: true,
       },
 
       coverImage: {
@@ -91,6 +121,7 @@ const farmSchema =
 
       description: {
         type: String,
+        trim: true,
         default: "",
       },
 
@@ -101,11 +132,6 @@ const farmSchema =
           "Inactive",
         ],
         default: "Active",
-      },
-
-      activeCropsCount: {
-        type: Number,
-        default: 0,
       },
     },
     {

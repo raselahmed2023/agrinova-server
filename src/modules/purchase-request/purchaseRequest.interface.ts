@@ -11,6 +11,7 @@ export type TPurchaseRequestStatus =
 export interface IPurchaseRequest {
   productId: Types.ObjectId;
 
+  // Snapshot at the time the request is created
   productTitle: string;
   productPrice: number;
 
@@ -24,7 +25,10 @@ export interface IPurchaseRequest {
   quantity: number;
   unit: string;
 
+  totalAmount: number;
+
   deliveryLocation: string;
+
   note?: string;
 
   status: TPurchaseRequestStatus;

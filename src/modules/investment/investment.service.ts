@@ -471,44 +471,49 @@ async (
 const getAdminInvestmentProjectByIdFromDB =
 async (
 
- projectId:string
+  projectId:string
 
 )=>{
 
- if(!isValidObjectId(projectId)){
 
-  throw new AppError(
-   400,
-   "Invalid project id"
-  );
+  if(!isValidObjectId(projectId)){
 
- }
+    throw new AppError(
+      400,
+      "Invalid investment project id"
+    );
 
- const project =
- await InvestmentProject.findOne({
-
-  _id:projectId,
-
-  isDeleted:{
-   $ne:true,
   }
 
- });
+
+
+  const project =
+    await InvestmentProject.findOne({
+
+      _id: projectId,
+
+      isDeleted:{
+        $ne:true,
+      }
+
+    });
 
 
 
- if(!project){
+  if(!project){
 
-  throw new AppError(
-   404,
-   "Project not found"
-  );
+    throw new AppError(
+      404,
+      "Investment project not found"
+    );
 
- }
+  }
 
- return project;
 
-};
+
+  return project;
+
+};;
 
 // Admin approve reject
 

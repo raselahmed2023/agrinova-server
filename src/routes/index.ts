@@ -9,6 +9,9 @@ import investmentRouter from "../modules/investment/investment.route.js";
 import { AdminRoutes } from "../modules/admin/admin.route";
 import { ConsultationRoutes } from "../app/modules/consultation/consultation.route";
 import { ExpertRoutes } from "../app/modules/expert/expert.route";
+import {
+  SupplyChainRoutes,
+} from "../modules/supply-chain/supplyRequest.route";
 
 const router = Router();
 
@@ -60,6 +63,10 @@ const moduleRoutes = [
     path: "/admin",
     route: AdminRoutes,
   },
+  {
+    path: "/supply-chain",
+  route: SupplyChainRoutes,
+},
 ];
 
 moduleRoutes.forEach((route) => {

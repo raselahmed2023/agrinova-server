@@ -35,6 +35,12 @@ interface CreateConsultationPayload {
   urgency?: TConsultationUrgency;
   preferredDate?: string;
   preferredTime?: string;
+  expertId?: string;
+  expertName?: string;
+  expertEmail?: string;
+  scheduledDate?: string;
+  scheduledTime?: string;
+  meetingLink?: string;
   notes?: string;
 }
 
@@ -69,6 +75,123 @@ const createConsultationIntoDB = async (
   user: UserContext,
   payload: CreateConsultationPayload
 ) => {
+  const expertId = payload.expertId;
+  const expertEmail = payload.expertEmail ? payload.expertEmail.toLowerCase().trim() : undefined;
+
+  // 1. Enforce: A farmer can schedule ONLY ONE active request to the same expert
+  if (expertId || expertEmail) {
+    const expertConditions: Record<string, unknown>[] = [];
+    if (expertId) {
+      expertConditions.push({ expertId }, { "expert.id": expertId });
+    }
+    if (expertEmail) {
+      expertConditions.push({ expertEmail }, { "expert.email": expertEmail });
+    }
+
+    const existingActiveWithExpert = await Consultation.findOne({
+      $and: [
+        {
+          $or: [
+            { farmerId: user.id },
+            { farmerEmail: user.email.toLowerCase().trim() },
+            { "farmer.id": user.id },
+            { "farmer.email": user.email.toLowerCase().trim() },
+          ],
+        },
+        { $or: expertConditions },
+        {
+          status: { $in: ["PENDING", "ACCEPTED", "SCHEDULED", "ONGOING"] },
+        },
+      ],
+    });
+
+    if (existingActiveWithExpert) {
+      throw new AppError(
+        400,
+        `You already have an active consultation (${existingActiveWithExpert.status.toLowerCase()}) with specialist ${
+          existingActiveWithExpert.expertName || "this specialist"
+        }. A farmer can schedule only one request to the same expert at a time.`
+      );
+    }
+  }
+
+  // 2. Enforce: No time conflict for farmer across ANY expert
+  if (payload.scheduledDate && payload.scheduledTime) {
+    const farmerTimeConflict = await Consultation.findOne({
+      $and: [
+        {
+          $or: [
+            { farmerId: user.id },
+            { farmerEmail: user.email.toLowerCase().trim() },
+            { "farmer.id": user.id },
+            { "farmer.email": user.email.toLowerCase().trim() },
+          ],
+        },
+        { scheduledDate: payload.scheduledDate },
+        { scheduledTime: payload.scheduledTime },
+        { status: { $in: ["ACCEPTED", "SCHEDULED", "ONGOING"] } },
+      ],
+    });
+
+    if (farmerTimeConflict) {
+      throw new AppError(
+        400,
+        `Time conflict: You already have another consultation booked on ${payload.scheduledDate} at ${payload.scheduledTime} with ${
+          farmerTimeConflict.expertName || "another specialist"
+        }. Please choose a different time slot.`
+      );
+    }
+
+    // 3. Enforce: No time conflict for the expert with other farmers
+    if (expertId || expertEmail) {
+      const expertConditions: Record<string, unknown>[] = [];
+      if (expertId) {
+        expertConditions.push({ expertId }, { "expert.id": expertId });
+      }
+      if (expertEmail) {
+        expertConditions.push({ expertEmail }, { "expert.email": expertEmail });
+      }
+
+      const expertTimeConflict = await Consultation.findOne({
+        $and: [
+          { $or: expertConditions },
+          { scheduledDate: payload.scheduledDate },
+          { scheduledTime: payload.scheduledTime },
+          { status: { $in: ["ACCEPTED", "SCHEDULED", "ONGOING"] } },
+        ],
+      });
+
+      if (expertTimeConflict) {
+        throw new AppError(
+          400,
+          `Time slot unavailable: This specialist already has a consultation booked on ${payload.scheduledDate} at ${payload.scheduledTime}. Please choose another available time slot.`
+        );
+      }
+    }
+  }
+
+  let expertDetails = undefined;
+  if (payload.expertId) {
+    try {
+      const expertDoc = await UserModel.findById(payload.expertId).catch(() => null);
+      if (expertDoc) {
+        expertDetails = {
+          id: expertDoc._id.toString(),
+          name: expertDoc.name,
+          email: expertDoc.email,
+          title: expertDoc.title || "Agricultural Specialist",
+          avatar: expertDoc.avatar || expertDoc.image,
+          phone: expertDoc.phone,
+        };
+      }
+    } catch {
+      // Ignore lookup failure
+    }
+  }
+
+  const cleanRandomRoom = `agrinova-consultation-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const hasSchedule = Boolean(payload.scheduledDate || payload.scheduledTime);
+
   const consultationData: Partial<IConsultation> = {
     farmerId: user.id,
     farmerName: user.name || "AgriNova Farmer",
@@ -81,6 +204,15 @@ const createConsultationIntoDB = async (
       district: payload.district,
       location: payload.district,
     },
+    expertId: payload.expertId,
+    expertName: expertDetails?.name || payload.expertName,
+    expertEmail: expertDetails?.email || payload.expertEmail,
+    expert: expertDetails || (payload.expertId ? {
+      id: payload.expertId,
+      name: payload.expertName || "Agricultural Specialist",
+      email: payload.expertEmail,
+      title: "Agricultural Specialist",
+    } : undefined),
     farmId: payload.farmId,
     farmName: payload.farmName,
     district: payload.district,
@@ -90,10 +222,17 @@ const createConsultationIntoDB = async (
     problemDescription: payload.problemDescription,
     images: payload.images || [],
     urgency: payload.urgency || "MEDIUM",
-    preferredDate: payload.preferredDate,
-    preferredTime: payload.preferredTime,
+    preferredDate: payload.preferredDate || payload.scheduledDate,
+    preferredTime: payload.preferredTime || payload.scheduledTime,
+    scheduledDate: payload.scheduledDate,
+    scheduledTime: payload.scheduledTime,
+    scheduledAt: payload.scheduledDate ? new Date(payload.scheduledDate) : undefined,
+    status: hasSchedule ? "SCHEDULED" : "PENDING",
+    videoRoomId: hasSchedule ? cleanRandomRoom : undefined,
+    meetingLink: hasSchedule
+      ? payload.meetingLink || `https://meet.jit.si/${cleanRandomRoom}`
+      : undefined,
     notes: payload.notes,
-    status: "PENDING",
     requestedAt: new Date(),
   };
 
@@ -111,33 +250,44 @@ const getAllConsultationsFromDB = async (
     page?: number;
   }
 ) => {
-  const filter: Record<string, unknown> = {};
+  const conditions: Record<string, unknown>[] = [];
 
   if (user.role === "FARMER") {
-    filter.farmerId = user.id;
+    conditions.push({
+      $or: [
+        { farmerId: user.id },
+        { farmerEmail: user.email.toLowerCase().trim() },
+        { "farmer.id": user.id },
+        { "farmer.email": user.email.toLowerCase().trim() },
+      ],
+    });
   }
 
   if (queryParams.status && queryParams.status !== "ALL") {
-    filter.status = queryParams.status;
+    conditions.push({ status: queryParams.status });
   }
 
   if (queryParams.cropType) {
-    filter.cropType = new RegExp(queryParams.cropType, "i");
+    conditions.push({ cropType: new RegExp(queryParams.cropType, "i") });
   }
 
   if (queryParams.search) {
     const searchRegex = new RegExp(queryParams.search, "i");
-    filter.$or = [
-      { problemTitle: searchRegex },
-      { problemDescription: searchRegex },
-      { cropType: searchRegex },
-      { cropName: searchRegex },
-      { farmerName: searchRegex },
-      { "farmer.name": searchRegex },
-      { farmName: searchRegex },
-      { district: searchRegex },
-    ];
+    conditions.push({
+      $or: [
+        { problemTitle: searchRegex },
+        { problemDescription: searchRegex },
+        { cropType: searchRegex },
+        { cropName: searchRegex },
+        { farmerName: searchRegex },
+        { "farmer.name": searchRegex },
+        { farmName: searchRegex },
+        { district: searchRegex },
+      ],
+    });
   }
+
+  const filter = conditions.length > 0 ? { $and: conditions } : {};
 
   const limit = queryParams.limit ? Number(queryParams.limit) : 50;
   const page = queryParams.page ? Number(queryParams.page) : 1;
@@ -720,6 +870,198 @@ const startConsultationInDB = async (
   };
 };
 
+const updateConsultationDetailsInDB = async (
+  consultationId: string,
+  payload: {
+    cropType?: string;
+    cropName?: string;
+    problemTitle?: string;
+    problemDescription?: string;
+    urgency?: TConsultationUrgency;
+    farmName?: string;
+    district?: string;
+    scheduledDate?: string;
+    scheduledTime?: string;
+    scheduledAt?: string | Date;
+    meetingLink?: string;
+    notes?: string;
+  },
+  user: UserContext
+) => {
+  let consultation = null;
+  if (isValidObjectId(consultationId)) {
+    consultation = await Consultation.findById(consultationId);
+  } else {
+    consultation = await Consultation.findOne({
+      $or: [{ _id: consultationId }, { id: consultationId }],
+    });
+  }
+
+  if (!consultation) {
+    throw new AppError(404, "Consultation not found");
+  }
+
+  // Authorization check: owner farmer, assigned expert, or admin
+  const userRole = user.role?.toUpperCase();
+  const isExpert = userRole === "EXPERT";
+  const isAdmin = userRole === "ADMIN";
+  const isOwnerFarmer =
+    consultation.farmerId === user.id ||
+    consultation.farmerEmail === user.email?.toLowerCase().trim() ||
+    consultation.farmer?.email === user.email?.toLowerCase().trim();
+  const isAssignedExpert =
+    isExpert ||
+    consultation.expertId === user.id ||
+    consultation.expertEmail === user.email?.toLowerCase().trim() ||
+    consultation.expert?.id === user.id ||
+    consultation.expert?.email === user.email?.toLowerCase().trim();
+
+  if (!isOwnerFarmer && !isAssignedExpert && !isAdmin && !isExpert) {
+    throw new AppError(403, "You are not authorized to modify this consultation.");
+  }
+
+  if (payload.cropType) consultation.cropType = payload.cropType;
+  if (payload.cropName) consultation.cropName = payload.cropName;
+  if (payload.problemTitle) consultation.problemTitle = payload.problemTitle;
+  if (payload.problemDescription) consultation.problemDescription = payload.problemDescription;
+  if (payload.urgency) consultation.urgency = payload.urgency;
+  if (payload.farmName) {
+    consultation.farmName = payload.farmName;
+    if (consultation.farmer) consultation.farmer.farmName = payload.farmName;
+  }
+  if (payload.district) {
+    consultation.district = payload.district;
+    if (consultation.farmer) consultation.farmer.district = payload.district;
+  }
+  if (payload.notes !== undefined) consultation.notes = payload.notes;
+
+  // Handle rescheduling with time conflict prevention
+  const newDate = payload.scheduledDate || (payload.scheduledAt ? new Date(payload.scheduledAt).toISOString().split("T")[0] : consultation.scheduledDate);
+  const newTime = payload.scheduledTime || consultation.scheduledTime;
+  const isRescheduling = Boolean(
+    (payload.scheduledDate && payload.scheduledDate !== consultation.scheduledDate) ||
+    (payload.scheduledTime && payload.scheduledTime !== consultation.scheduledTime) ||
+    payload.scheduledAt
+  );
+
+  if (isRescheduling && newDate && newTime) {
+    // 1. Farmer time conflict: Check if farmer already has another consultation at this slot
+    const farmerConflict = await Consultation.findOne({
+      _id: { $ne: consultation._id },
+      $or: [
+        { farmerId: user.id },
+        { farmerEmail: user.email.toLowerCase().trim() },
+        { "farmer.id": user.id },
+        { "farmer.email": user.email.toLowerCase().trim() },
+        ...(consultation.farmerId ? [{ farmerId: consultation.farmerId }] : []),
+        ...(consultation.farmerEmail ? [{ farmerEmail: consultation.farmerEmail.toLowerCase().trim() }] : []),
+      ],
+      scheduledDate: newDate,
+      scheduledTime: newTime,
+      status: { $in: ["ACCEPTED", "SCHEDULED", "ONGOING"] },
+    });
+
+    if (farmerConflict) {
+      throw new AppError(
+        400,
+        `Time conflict: You already have another consultation booked on ${newDate} at ${newTime} with specialist ${
+          farmerConflict.expertName || "another expert"
+        }. Please pick a different date or time slot.`
+      );
+    }
+
+    // 2. Expert time conflict: Check if the expert is already booked at this slot
+    const currentExpId = consultation.expertId || consultation.expert?.id;
+    const currentExpEmail = consultation.expertEmail || consultation.expert?.email;
+    if (currentExpId || currentExpEmail) {
+      const expConditions: Record<string, unknown>[] = [];
+      if (currentExpId) expConditions.push({ expertId: currentExpId }, { "expert.id": currentExpId });
+      if (currentExpEmail) expConditions.push({ expertEmail: currentExpEmail.toLowerCase().trim() }, { "expert.email": currentExpEmail.toLowerCase().trim() });
+
+      const expertConflict = await Consultation.findOne({
+        _id: { $ne: consultation._id },
+        $or: expConditions,
+        scheduledDate: newDate,
+        scheduledTime: newTime,
+        status: { $in: ["ACCEPTED", "SCHEDULED", "ONGOING"] },
+      });
+
+      if (expertConflict) {
+        throw new AppError(
+          400,
+          `Time slot unavailable: This specialist already has a consultation booked on ${newDate} at ${newTime}. Please select another available time slot.`
+        );
+      }
+    }
+
+    consultation.scheduledDate = newDate;
+    consultation.scheduledTime = newTime;
+    consultation.scheduledAt = new Date(`${newDate} ${newTime}`);
+    if (isNaN(consultation.scheduledAt.getTime())) {
+      consultation.scheduledAt = new Date(newDate);
+    }
+    if (consultation.status === "PENDING" || consultation.status === "COMPLETED") {
+      consultation.status = "SCHEDULED";
+    }
+  }
+
+  if (payload.meetingLink) {
+    consultation.meetingLink = payload.meetingLink;
+  }
+
+  await consultation.save();
+  return consultation;
+};
+
+const deleteConsultationFromDB = async (
+  consultationId: string,
+  user: UserContext
+) => {
+  let consultation = null;
+  if (isValidObjectId(consultationId)) {
+    consultation = await Consultation.findById(consultationId);
+  } else {
+    consultation = await Consultation.findOne({
+      $or: [{ _id: consultationId }, { id: consultationId }],
+    });
+  }
+
+  if (!consultation) {
+    throw new AppError(404, "Consultation not found");
+  }
+
+  // Prevent deleting completed consultations
+  if (consultation.status === "COMPLETED") {
+    throw new AppError(
+      400,
+      "Completed consultations cannot be deleted as they preserve historical diagnostic and prescription records."
+    );
+  }
+
+  // Authorization: users with EXPERT role, ADMIN role, assigned expert, or owner farmer
+  const userRole = user.role?.toUpperCase();
+  const isExpert = userRole === "EXPERT";
+  const isAdmin = userRole === "ADMIN";
+  const isAssignedExpert =
+    isExpert ||
+    consultation.expertId === user.id ||
+    consultation.expertEmail === user.email?.toLowerCase().trim() ||
+    consultation.expert?.id === user.id ||
+    consultation.expert?.email === user.email?.toLowerCase().trim();
+  const isOwnerFarmer =
+    consultation.farmerId === user.id ||
+    consultation.farmerEmail === user.email?.toLowerCase().trim() ||
+    consultation.farmer?.id === user.id ||
+    consultation.farmer?.email === user.email?.toLowerCase().trim();
+
+  if (!isExpert && !isAssignedExpert && !isAdmin && !isOwnerFarmer) {
+    throw new AppError(403, "You are not authorized to delete this consultation.");
+  }
+
+  await Consultation.findByIdAndDelete(consultation._id);
+  return { id: consultationId, message: "Consultation deleted successfully" };
+};
+
 export const ConsultationServices = {
   createConsultationIntoDB,
   getAllConsultationsFromDB,
@@ -733,4 +1075,7 @@ export const ConsultationServices = {
   completeConsultationInDB,
   updateConsultationStatusInDB,
   getExpertConsultationStatsFromDB,
+  updateConsultationDetailsInDB,
+  deleteConsultationFromDB,
 };
+

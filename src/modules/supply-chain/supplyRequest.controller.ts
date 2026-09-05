@@ -10,6 +10,16 @@ import {
   SupplyRequestService,
 } from "./supplyRequest.service";
 
+const getRequestId = (
+  requestId: string | string[]
+): string => {
+  if (Array.isArray(requestId)) {
+    return requestId[0];
+  }
+
+  return requestId;
+};
+
 const createSupplyRequest =
   catchAsync(
     async (
@@ -58,9 +68,10 @@ const getSupplyRequestById =
       req: Request,
       res: Response
     ) => {
-      const {
-        requestId,
-      } = req.params;
+      const requestId =
+        getRequestId(
+          req.params.requestId
+        );
 
       const result =
         await SupplyRequestService
@@ -84,9 +95,10 @@ const updateSupplyRequestStatus =
       req: Request,
       res: Response
     ) => {
-      const {
-        requestId,
-      } = req.params;
+      const requestId =
+        getRequestId(
+          req.params.requestId
+        );
 
       const {
         status,

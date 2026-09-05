@@ -1,111 +1,289 @@
-import type { Request, Response } from "express";
-import { InvestmentProject } from "./investment.model.js";
-import { createInvestmentProjectSchema } from "./investment.validation.js";
+import type {
+  Request,
+  Response,
+} from "express";
 
-const getUserId = (req: Request) => {
-  const user = (req as any).user;
+import AppError from "../../utils/AppError";
+import catchAsync from "../../utils/catchAsync";
+import sendResponse from "../../utils/sendResponse";
 
-  return user?.id || user?._id || user?.userId;
-};
+import {
+  TInvestmentStatus,
+} from "./investment.interface";
 
-export const createInvestmentProject = async (
-  req: Request,
-  res: Response
+import {
+  InvestmentService,
+} from "./investment.service";
+
+const requireUser = (
+  req: Request
 ) => {
-  try {
-    const farmerId = getUserId(req);
-
-    if (!farmerId) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-      });
-    }
-
-    const parsedData = createInvestmentProjectSchema.safeParse(
-      req.body
+  if (!req.user) {
+    throw new AppError(
+      401,
+      "Authentication required"
     );
-
-    if (!parsedData.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation failed",
-        errors: parsedData.error.flatten().fieldErrors,
-      });
-    }
-
-    const project = await InvestmentProject.create({
-      farmerId,
-      ...parsedData.data,
-      receivedInvestment: 0,
-      status: "Pending Review",
-    });
-
-    const safeProject = {
-      _id: project._id,
-      farmerId: project.farmerId,
-      projectTitle: project.projectTitle,
-      category: project.category,
-      requiredInvestment: project.requiredInvestment,
-      projectedProfit: project.projectedProfit,
-      duration: project.duration,
-      location: project.location,
-      projectImage: project.projectImage,
-      description: project.description,
-      receivedInvestment: project.receivedInvestment,
-      status: project.status,
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-    };
-
-    return res.status(201).json({
-      success: true,
-      message: "Investment project submitted for admin review",
-      data: safeProject,
-    });
-  } catch (error) {
-    console.error("Create investment project error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to create investment project",
-    });
   }
+
+  return req.user;
 };
 
-export const getMyInvestmentProjects = async (
-  req: Request,
-  res: Response
-) => {
-  try {
-    const farmerId = getUserId(req);
+const createInvestmentProject =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      const user =
+        requireUser(req);
 
-    if (!farmerId) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized",
+      const result =
+        await InvestmentService
+          .createInvestmentProjectInDB(
+            req.body,
+            {
+              id:
+                user.id,
+
+              name:
+                user.name,
+
+              email:
+                user.email,
+            }
+          );
+
+      sendResponse(res, {
+        statusCode: 201,
+        success: true,
+        message:
+          "Investment request submitted for admin review",
+        data: result,
       });
     }
+  );
 
-    const projects = await InvestmentProject.find({
-      farmerId,
-    })
-      .select("-nidNumber -supportingDocument")
-      .sort({
-        createdAt: -1,
+const getMyInvestmentProjects =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      const user =
+        requireUser(req);
+
+      const result =
+        await InvestmentService
+          .getMyInvestmentProjectsFromDB(
+            user.id
+          );
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          "Investment projects retrieved successfully",
+        data: result,
       });
+    }
+  );
 
-    return res.status(200).json({
-      success: true,
-      message: "Investment projects retrieved successfully",
-      data: projects,
-    });
-  } catch (error) {
-    console.error("Get investment projects error:", error);
+const getMyInvestmentProjectById =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      const user =
+        requireUser(req);
 
-    return res.status(500).json({
-      success: false,
-      message: "Failed to retrieve investment projects",
-    });
-  }
-};
+      const projectId =
+        String(
+          req.params
+            .projectId
+        );
+
+      const result =
+        await InvestmentService
+          .getMyInvestmentProjectByIdFromDB(
+            projectId,
+            user.id
+          );
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          "Investment project retrieved successfully",
+        data: result,
+      });
+    }
+  );
+
+const updateMyInvestmentProject =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      const user =
+        requireUser(req);
+
+      const projectId =
+        String(
+          req.params
+            .projectId
+        );
+
+      const result =
+        await InvestmentService
+          .updateMyInvestmentProjectInDB(
+            projectId,
+            user.id,
+            req.body
+          );
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          "Investment project updated successfully",
+        data: result,
+      });
+    }
+  );
+
+const deleteMyInvestmentProject =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      const user =
+        requireUser(req);
+
+      const projectId =
+        String(
+          req.params
+            .projectId
+        );
+
+      const result =
+        await InvestmentService
+          .deleteMyInvestmentProjectFromDB(
+            projectId,
+            user.id
+          );
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          "Investment request withdrawn successfully",
+        data: result,
+      });
+    }
+  );
+
+const getAdminInvestmentProjects =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      const result =
+        await InvestmentService
+          .getAdminInvestmentProjectsFromDB(
+            req.query
+          );
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          "Investment projects retrieved successfully",
+        meta:
+          result.meta,
+        data:
+          result.data,
+      });
+    }
+  );
+
+const getAdminInvestmentProjectById =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      const projectId =
+        String(
+          req.params
+            .projectId
+        );
+
+      const result =
+        await InvestmentService
+          .getAdminInvestmentProjectByIdFromDB(
+            projectId
+          );
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          "Investment project retrieved successfully",
+        data: result,
+      });
+    }
+  );
+
+const reviewInvestmentProject =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      const projectId =
+        String(
+          req.params
+            .projectId
+        );
+
+      const result =
+        await InvestmentService
+          .reviewInvestmentProjectInDB(
+            projectId,
+
+            req.body
+              .status as TInvestmentStatus,
+
+            req.body
+              .adminNote
+          );
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          req.body.status ===
+          "APPROVED"
+            ? "Investment project approved successfully"
+            : "Investment project rejected successfully",
+        data: result,
+      });
+    }
+  );
+
+export const InvestmentController =
+  {
+    createInvestmentProject,
+    getMyInvestmentProjects,
+    getMyInvestmentProjectById,
+    updateMyInvestmentProject,
+    deleteMyInvestmentProject,
+
+    getAdminInvestmentProjects,
+    getAdminInvestmentProjectById,
+    reviewInvestmentProject,
+  };

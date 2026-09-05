@@ -1,54 +1,301 @@
-import { z } from "zod";
+import {
+  z,
+} from "zod";
 
-export const createInvestmentProjectSchema = z.object({
-  projectTitle: z
-    .string()
-    .trim()
-    .min(3, "Project title is required"),
+import {
+  INVESTMENT_CATEGORIES,
+  INVESTMENT_STATUSES,
+} from "./investment.interface";
 
-  nidNumber: z
-    .string()
-    .trim()
-    .regex(
-      /^(\d{10}|\d{13}|\d{17})$/,
-      "NID number must be 10, 13 or 17 digits"
-    ),
+const categorySchema =
+  z.enum(
+    INVESTMENT_CATEGORIES
+  );
 
-  category: z
-    .string()
-    .trim()
-    .min(1, "Category is required"),
+const statusSchema =
+  z.enum(
+    INVESTMENT_STATUSES
+  );
 
-  requiredInvestment: z.coerce
-    .number()
-    .positive("Required investment must be greater than 0"),
+const createInvestmentProjectSchema =
+  z.object({
+    body: z.object({
+      farmId: z
+        .string()
+        .trim()
+        .min(1)
+        .optional(),
 
-  projectedProfit: z.coerce
-    .number()
-    .min(0, "Projected profit cannot be negative"),
+      projectTitle: z
+        .string({
+          message:
+            "Project title is required",
+        })
+        .trim()
+        .min(3)
+        .max(150),
 
-  duration: z
-    .string()
-    .trim()
-    .min(1, "Duration is required"),
+      category:
+        categorySchema,
 
-  location: z
-    .string()
-    .trim()
-    .min(2, "Location is required"),
+      requiredInvestment: z
+        .number({
+          message:
+            "Required investment is required",
+        })
+        .positive(
+          "Required investment must be greater than 0"
+        ),
 
-  projectImage: z
-    .string()
-    .trim()
-    .min(1, "Project image is required"),
+      ownContribution: z
+        .number()
+        .min(
+          0,
+          "Own contribution cannot be negative"
+        )
+        .optional(),
 
-  description: z
-    .string()
-    .trim()
-    .min(10, "Description must be at least 10 characters"),
+      duration: z
+        .string({
+          message:
+            "Project duration is required",
+        })
+        .trim()
+        .min(1)
+        .max(100),
 
-  supportingDocument: z
-    .string()
-    .trim()
-    .min(1, "Supporting document is required"),
-});
+      division: z
+        .string()
+        .trim()
+        .min(
+          1,
+          "Division is required"
+        )
+        .max(100),
+
+      district: z
+        .string()
+        .trim()
+        .min(
+          1,
+          "District is required"
+        )
+        .max(100),
+
+      upazila: z
+        .string()
+        .trim()
+        .min(
+          1,
+          "Upazila is required"
+        )
+        .max(100),
+
+      location: z
+        .string()
+        .trim()
+        .min(
+          2,
+          "Address is required"
+        )
+        .max(300),
+
+      projectImage: z
+        .string()
+        .url()
+        .optional(),
+
+      description: z
+        .string()
+        .trim()
+        .min(
+          20,
+          "Description must be at least 20 characters"
+        )
+        .max(5000),
+
+      expectedBenefits: z
+        .string()
+        .trim()
+        .min(
+          10,
+          "Expected benefits must be at least 10 characters"
+        )
+        .max(3000),
+    }),
+  });
+
+const updateInvestmentProjectSchema =
+  z.object({
+    body: z
+      .object({
+        farmId: z
+          .string()
+          .trim()
+          .min(1)
+          .optional(),
+
+        projectTitle: z
+          .string()
+          .trim()
+          .min(3)
+          .max(150)
+          .optional(),
+
+        category:
+          categorySchema
+            .optional(),
+
+        requiredInvestment: z
+          .number()
+          .positive()
+          .optional(),
+
+        ownContribution: z
+          .number()
+          .min(0)
+          .optional(),
+
+        duration: z
+          .string()
+          .trim()
+          .min(1)
+          .max(100)
+          .optional(),
+
+        division: z
+          .string()
+          .trim()
+          .min(1)
+          .max(100)
+          .optional(),
+
+        district: z
+          .string()
+          .trim()
+          .min(1)
+          .max(100)
+          .optional(),
+
+        upazila: z
+          .string()
+          .trim()
+          .min(1)
+          .max(100)
+          .optional(),
+
+        location: z
+          .string()
+          .trim()
+          .min(2)
+          .max(300)
+          .optional(),
+
+        projectImage: z
+          .string()
+          .url()
+          .optional(),
+
+        description: z
+          .string()
+          .trim()
+          .min(20)
+          .max(5000)
+          .optional(),
+
+        expectedBenefits: z
+          .string()
+          .trim()
+          .min(10)
+          .max(3000)
+          .optional(),
+      })
+      .refine(
+        (body) =>
+          Object.keys(body)
+            .length > 0,
+        {
+          message:
+            "At least one field is required",
+        }
+      ),
+  });
+
+const reviewInvestmentProjectSchema =
+  z.object({
+    body: z
+      .object({
+        status:
+          statusSchema.refine(
+            (status) =>
+              status ===
+                "APPROVED" ||
+              status ===
+                "REJECTED",
+            {
+              message:
+                "Status must be APPROVED or REJECTED",
+            }
+          ),
+
+        adminNote: z
+          .string()
+          .trim()
+          .max(2000)
+          .optional(),
+      })
+      .superRefine(
+        (
+          body,
+          ctx
+        ) => {
+          if (
+            body.status ===
+              "REJECTED" &&
+            !body.adminNote
+              ?.trim()
+          ) {
+            ctx.addIssue({
+              code:
+                "custom",
+              path: [
+                "adminNote",
+              ],
+              message:
+                "A rejection reason is required",
+            });
+          }
+        }
+      ),
+  });
+
+const getAdminInvestmentProjectsSchema =
+  z.object({
+    query: z
+      .object({
+        status:
+          statusSchema
+            .optional(),
+
+        search: z
+          .string()
+          .optional(),
+
+        page: z
+          .string()
+          .optional(),
+
+        limit: z
+          .string()
+          .optional(),
+      })
+      .optional(),
+  });
+
+export const InvestmentValidation =
+  {
+    createInvestmentProjectSchema,
+    updateInvestmentProjectSchema,
+    reviewInvestmentProjectSchema,
+    getAdminInvestmentProjectsSchema,
+  };

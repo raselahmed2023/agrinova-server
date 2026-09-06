@@ -1,45 +1,302 @@
-import mongoose from "mongoose";
+import {
+  isValidObjectId,
+} from "mongoose";
 
-const getMainDb = () => mongoose.connection.useDb("agrinova", { useCache: true });
+import {
+  Product,
+} from "../../product/product.model";
 
-export const ProductService = {
-  async getAdminProductsFromDB(query: Record<string, unknown>) {
-    const productCollection = getMainDb().collection("products");
-    const page = Number(query.page) || 1;
-    const limit = Math.min(Number(query.limit) || 10, 50);
-    const skip = (page - 1) * limit;
+export const ProductService =
+  {
+    async getAdminProductsFromDB(
+      query:
+        Record<
+          string,
+          unknown
+        >
+    ) {
+      const page =
+        Math.max(
+          Number(
+            query.page
+          ) || 1,
+          1
+        );
 
-    const filter: Record<string, unknown> = {};
-    if (query.status && query.status !== "") filter.status = query.status;
-    if (query.category && query.category !== "") filter.category = query.category;
-    if (query.search) {
-      filter.title = { $regex: query.search, $options: "i" };
-    }
+      const limit =
+        Math.min(
+          Math.max(
+            Number(
+              query.limit
+            ) || 10,
+            1
+          ),
+          50
+        );
 
-    const data = await productCollection.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 }).toArray();
-    const total = await productCollection.countDocuments(filter);
+      const skip =
+        (
+          page - 1
+        ) *
+        limit;
 
-    return {
-      data,
-      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
-    };
-  },
+      const filter:
+        Record<
+          string,
+          any
+        > = {
+          isDeleted: {
+            $ne: true,
+          },
+        };
 
-  async getAdminProductByIdFromDB(productId: string) {
-    const productCollection = getMainDb().collection("products");
-    if (!mongoose.Types.ObjectId.isValid(productId)) return null;
-    return await productCollection.findOne({ _id: new mongoose.Types.ObjectId(productId) });
-  },
+      if (
+        typeof query.status ===
+          "string" &&
+        query.status
+      ) {
+        filter.status =
+          query.status;
+      }
 
-  async updateProductStatusInDB(productId: string, status: "ACTIVE" | "DISABLED" | "REMOVED") {
-    const productCollection = getMainDb().collection("products");
-    if (!mongoose.Types.ObjectId.isValid(productId)) return null;
+      if (
+        typeof query.category ===
+          "string" &&
+        query.category
+      ) {
+        filter.category =
+          query.category;
+      }
 
-    const result = await productCollection.findOneAndUpdate(
-      { _id: new mongoose.Types.ObjectId(productId) },
-      { $set: { status, updatedAt: new Date() } },
-      { returnDocument: "after" }
-    );
-    return result;
-  }
-};
+      if (
+        typeof query.search ===
+          "string" &&
+        query.search.trim()
+      ) {
+        const escaped =
+          query.search
+            .trim()
+            .replace(
+              /[.*+?^${}()|[\]\\]/g,
+              "\\$&"
+            );
+
+        filter.$or = [
+          {
+            title: {
+              $regex:
+                escaped,
+
+              $options:
+                "i",
+            },
+          },
+
+          {
+            sellerName: {
+              $regex:
+                escaped,
+
+              $options:
+                "i",
+            },
+          },
+
+          {
+            district: {
+              $regex:
+                escaped,
+
+              $options:
+                "i",
+            },
+          },
+        ];
+      }
+
+      const [
+        data,
+        total,
+      ] =
+        await Promise.all([
+          Product.find(
+            filter
+          )
+            .sort({
+              createdAt:
+                -1,
+            })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+
+          Product.countDocuments(
+            filter
+          ),
+        ]);
+
+      return {
+        data,
+
+        meta: {
+          page,
+
+          limit,
+
+          total,
+
+          totalPages:
+            Math.max(
+              Math.ceil(
+                total /
+                  limit
+              ),
+              1
+            ),
+        },
+      };
+    },
+
+    async getAdminProductByIdFromDB(
+      productId:
+        string
+    ) {
+      if (
+        !isValidObjectId(
+          productId
+        )
+      ) {
+        return null;
+      }
+
+      return Product.findOne(
+        {
+          _id:
+            productId,
+
+          isDeleted: {
+            $ne: true,
+          },
+        }
+      ).lean();
+    },
+
+    async disableProductInDB(
+      productId:
+        string
+    ) {
+      if (
+        !isValidObjectId(
+          productId
+        )
+      ) {
+        return null;
+      }
+
+      return Product.findOneAndUpdate(
+        {
+          _id:
+            productId,
+
+          isDeleted: {
+            $ne: true,
+          },
+        },
+
+        {
+          $set: {
+            status:
+              "disabled",
+          },
+        },
+
+        {
+          new: true,
+
+          runValidators:
+            true,
+        }
+      );
+    },
+
+    async restoreProductInDB(
+      productId:
+        string
+    ) {
+      if (
+        !isValidObjectId(
+          productId
+        )
+      ) {
+        return null;
+      }
+
+      const product =
+        await Product.findOne(
+          {
+            _id:
+              productId,
+
+            isDeleted: {
+              $ne: true,
+            },
+          }
+        );
+
+      if (!product) {
+        return null;
+      }
+
+      product.status =
+        Number(
+          product.quantity
+        ) > 0
+          ? "available"
+          : "out_of_stock";
+
+      await product.save();
+
+      return product;
+    },
+
+    async removeProductInDB(
+      productId:
+        string
+    ) {
+      if (
+        !isValidObjectId(
+          productId
+        )
+      ) {
+        return null;
+      }
+
+      return Product.findOneAndUpdate(
+        {
+          _id:
+            productId,
+
+          isDeleted: {
+            $ne: true,
+          },
+        },
+
+        {
+          $set: {
+            isDeleted:
+              true,
+
+            status:
+              "disabled",
+          },
+        },
+
+        {
+          new: true,
+
+          runValidators:
+            true,
+        }
+      );
+    },
+  };

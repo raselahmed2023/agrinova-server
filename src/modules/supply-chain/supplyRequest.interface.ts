@@ -45,8 +45,11 @@ export type TSupplyStatus =
   (typeof SUPPLY_STATUSES)[number];
 
 export interface ISupplyRequest {
+  trackingCode: string;
+
   farmerName: string;
   phone: string;
+  farmerEmail?: string;
 
   productName: string;
   category: TSupplyCategory;
@@ -67,6 +70,21 @@ export interface ISupplyRequest {
 
   status: TSupplyStatus;
 
+  adminNote?: string;
+
+  acceptedAt?: Date;
+  rejectedAt?: Date;
+  receivedAt?: Date;
+  completedAt?: Date;
+
   createdAt?: Date;
   updatedAt?: Date;
+}
+
+export interface ISupplyRequestQuery {
+  status?: string;
+  branch?: string;
+  search?: string;
+  page?: string;
+  limit?: string;
 }

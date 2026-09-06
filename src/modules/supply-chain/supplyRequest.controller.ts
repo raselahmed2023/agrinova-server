@@ -11,9 +11,14 @@ import {
 } from "./supplyRequest.service";
 
 const getRequestId = (
-  requestId: string | string[]
+  requestId:
+    string | string[]
 ): string => {
-  if (Array.isArray(requestId)) {
+  if (
+    Array.isArray(
+      requestId
+    )
+  ) {
     return requestId[0];
   }
 
@@ -35,8 +40,10 @@ const createSupplyRequest =
       sendResponse(res, {
         statusCode: 201,
         success: true,
+
         message:
-          "Product submitted successfully for AgriNova review",
+          "Product submitted for review. Do not deliver the product until AgriNova accepts your submission.",
+
         data: result,
       });
     }
@@ -45,19 +52,26 @@ const createSupplyRequest =
 const getAllSupplyRequests =
   catchAsync(
     async (
-      _req: Request,
+      req: Request,
       res: Response
     ) => {
       const result =
         await SupplyRequestService
-          .getAllSupplyRequestsFromDB();
+          .getAllSupplyRequestsFromDB(
+            req.query
+          );
 
       sendResponse(res, {
         statusCode: 200,
         success: true,
         message:
           "Supply requests fetched successfully",
-        data: result,
+
+        meta:
+          result.meta,
+
+        data:
+          result.data,
       });
     }
   );
@@ -70,7 +84,8 @@ const getSupplyRequestById =
     ) => {
       const requestId =
         getRequestId(
-          req.params.requestId
+          req.params
+            .requestId
         );
 
       const result =
@@ -89,6 +104,34 @@ const getSupplyRequestById =
     }
   );
 
+const trackSupplyRequest =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      const trackingCode =
+        String(
+          req.params
+            .trackingCode
+        );
+
+      const result =
+        await SupplyRequestService
+          .trackSupplyRequestFromDB(
+            trackingCode
+          );
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          "Supply request status retrieved successfully",
+        data: result,
+      });
+    }
+  );
+
 const updateSupplyRequestStatus =
   catchAsync(
     async (
@@ -97,18 +140,20 @@ const updateSupplyRequestStatus =
     ) => {
       const requestId =
         getRequestId(
-          req.params.requestId
+          req.params
+            .requestId
         );
-
-      const {
-        status,
-      } = req.body;
 
       const result =
         await SupplyRequestService
           .updateSupplyRequestStatusInDB(
             requestId,
-            status
+
+            req.body
+              .status,
+
+            req.body
+              .adminNote
           );
 
       sendResponse(res, {
@@ -126,5 +171,6 @@ export const SupplyRequestController =
     createSupplyRequest,
     getAllSupplyRequests,
     getSupplyRequestById,
+    trackSupplyRequest,
     updateSupplyRequestStatus,
   };

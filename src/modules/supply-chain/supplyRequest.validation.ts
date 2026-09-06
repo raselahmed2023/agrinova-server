@@ -38,10 +38,7 @@ const createSupplyRequestSchema =
             "Farmer name is required",
         })
         .trim()
-        .min(
-          2,
-          "Farmer name is too short"
-        )
+        .min(2)
         .max(100),
 
       phone: z
@@ -55,26 +52,26 @@ const createSupplyRequestSchema =
           "Invalid Bangladeshi phone number"
         ),
 
+      farmerEmail: z
+        .string()
+        .trim()
+        .email()
+        .optional(),
+
       productName: z
         .string({
           message:
             "Product name is required",
         })
         .trim()
-        .min(
-          2,
-          "Product name is too short"
-        )
+        .min(2)
         .max(120),
 
       category:
         categorySchema,
 
       quantity: z
-        .number({
-          message:
-            "Quantity is required",
-        })
+        .number()
         .positive(
           "Quantity must be greater than 0"
         ),
@@ -83,10 +80,7 @@ const createSupplyRequestSchema =
         unitSchema,
 
       expectedPrice: z
-        .number({
-          message:
-            "Expected price is required",
-        })
+        .number()
         .min(
           0,
           "Expected price cannot be negative"
@@ -95,34 +89,22 @@ const createSupplyRequestSchema =
       division: z
         .string()
         .trim()
-        .min(
-          1,
-          "Division is required"
-        ),
+        .min(1),
 
       district: z
         .string()
         .trim()
-        .min(
-          1,
-          "District is required"
-        ),
+        .min(1),
 
       upazila: z
         .string()
         .trim()
-        .min(
-          1,
-          "Upazila is required"
-        ),
+        .min(1),
 
       location: z
         .string()
         .trim()
-        .min(
-          2,
-          "Address is required"
-        )
+        .min(2)
         .max(250),
 
       branch:
@@ -136,7 +118,9 @@ const createSupplyRequestSchema =
 
       images: z
         .array(
-          z.string().url()
+          z
+            .string()
+            .url()
         )
         .max(5)
         .optional(),
@@ -145,10 +129,42 @@ const createSupplyRequestSchema =
 
 const updateStatusSchema =
   z.object({
-    body: z.object({
-      status:
-        statusSchema,
-    }),
+    body: z
+      .object({
+        status:
+          statusSchema,
+
+        adminNote: z
+          .string()
+          .trim()
+          .max(1500)
+          .optional(),
+      })
+      .superRefine(
+        (
+          body,
+          ctx
+        ) => {
+          if (
+            body.status ===
+              "REJECTED" &&
+            !body.adminNote
+              ?.trim()
+          ) {
+            ctx.addIssue({
+              code:
+                "custom",
+
+              path: [
+                "adminNote",
+              ],
+
+              message:
+                "A rejection reason is required",
+            });
+          }
+        }
+      ),
 
     params: z.object({
       requestId: z
@@ -157,8 +173,50 @@ const updateStatusSchema =
     }),
   });
 
+const adminQuerySchema =
+  z.object({
+    query: z
+      .object({
+        status:
+          statusSchema
+            .optional(),
+
+        branch:
+          branchSchema
+            .optional(),
+
+        search: z
+          .string()
+          .optional(),
+
+        page: z
+          .string()
+          .optional(),
+
+        limit: z
+          .string()
+          .optional(),
+      })
+      .optional(),
+  });
+
+const trackingSchema =
+  z.object({
+    params: z.object({
+      trackingCode: z
+        .string()
+        .trim()
+        .regex(
+          /^AGN-[A-F0-9]{8}$/i,
+          "Invalid tracking code"
+        ),
+    }),
+  });
+
 export const SupplyRequestValidation =
   {
     createSupplyRequestSchema,
     updateStatusSchema,
+    adminQuerySchema,
+    trackingSchema,
   };

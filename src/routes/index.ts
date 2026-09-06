@@ -13,6 +13,7 @@ import { PurchaseRequestRoutes } from "../modules/purchase-request/purchaseReque
 
 import { ConsultationRoutes } from "../app/modules/consultation/consultation.route";
 import { ExpertRoutes } from "../app/modules/expert/expert.route";
+import { BlogRoutes } from "../app/modules/blog/blog.route";
 
 const router = Router();
 
@@ -63,6 +64,11 @@ const moduleRoutes = [
   {
     path: "/experts",
     route: ExpertRoutes,
+  },
+
+  {
+    path: "/blogs",
+    route: BlogRoutes,
   },
 ];
 

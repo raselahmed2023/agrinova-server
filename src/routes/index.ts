@@ -70,6 +70,10 @@ const moduleRoutes = [
     path: "/orders",
     route: OrderRoutes,
   },
+  {
+    path: "/payments",
+    route: PaymentRoutes,
+},
 ];
 
 moduleRoutes.forEach((route) => {

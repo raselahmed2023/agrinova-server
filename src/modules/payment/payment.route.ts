@@ -17,15 +17,32 @@ const router =
     Router();
 
 /**
+ * Stripe webhook
+ *
+ * This route is intentionally
+ * NOT authenticated.
+ *
+ * Stripe authenticates the
+ * request using the webhook
+ * signature.
+ */
+router.post(
+    "/stripe/webhook",
+    PaymentController.stripeWebhook
+);
+
+/**
  * Create Stripe Checkout Session
  */
 router.post(
     "/stripe/create-session",
     authenticate,
     validateRequest(
-        PaymentValidation.createStripeCheckoutSessionValidationSchema
+        PaymentValidation
+            .createStripeCheckoutSessionValidationSchema
     ),
-    PaymentController.createStripeCheckoutSession
+    PaymentController
+        .createStripeCheckoutSession
 );
 
 /**
@@ -34,7 +51,8 @@ router.post(
 router.get(
     "/stripe/session/:sessionId",
     authenticate,
-    PaymentController.getStripeCheckoutSession
+    PaymentController
+        .getStripeCheckoutSession
 );
 
 export const PaymentRoutes =

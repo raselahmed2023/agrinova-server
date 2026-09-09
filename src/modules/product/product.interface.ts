@@ -55,6 +55,11 @@ export interface IProduct {
   district?: string;
   upazila?: string;
 
+  sellerId?: string;
+  approvedAt?: Date;
+  approvedBy?: string;
+  rejectionReason?: string;
+
   poultryDetails?: IPoultryDetails;
 
   byProductUses?: TByProductUse[];
@@ -82,17 +87,17 @@ export interface IProductQueryParams {
   maxPrice?: string;
 
   sort?:
-    | "newest"
-    | "oldest"
-    | "price_asc"
-    | "price_desc"
-    | "quantity_desc";
+  | "newest"
+  | "oldest"
+  | "price_asc"
+  | "price_desc"
+  | "quantity_desc";
 
   sortBy?:
-    | "createdAt"
-    | "price"
-    | "quantity"
-    | "title";
+  | "createdAt"
+  | "price"
+  | "quantity"
+  | "title";
 
   sortOrder?: "asc" | "desc";
 
@@ -101,4 +106,4 @@ export interface IProductQueryParams {
 }
 
 export interface IMyListingsQueryParams
-  extends IProductQueryParams {}
+  extends IProductQueryParams { }

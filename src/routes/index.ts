@@ -9,9 +9,8 @@ import investmentRouter from "../modules/investment/investment.route.js";
 import { AdminRoutes } from "../modules/admin/admin.route";
 import { ConsultationRoutes } from "../app/modules/consultation/consultation.route";
 import { ExpertRoutes } from "../app/modules/expert/expert.route";
-import {
-  SupplyChainRoutes,
-} from "../modules/supply-chain/supplyRequest.route";
+import { SupplyChainRoutes } from "../modules/supply-chain/supplyRequest.route";
+import { OrderRoutes } from "../modules/order/order.route";
 
 const router = Router();
 
@@ -65,8 +64,12 @@ const moduleRoutes = [
   },
   {
     path: "/supply-chain",
-  route: SupplyChainRoutes,
-},
+    route: SupplyChainRoutes,
+  },
+  {
+    path: "/orders",
+    route: OrderRoutes,
+  },
 ];
 
 moduleRoutes.forEach((route) => {

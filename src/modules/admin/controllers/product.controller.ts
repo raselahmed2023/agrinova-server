@@ -4,229 +4,319 @@ import {
 } from "express";
 
 import httpStatus from "http-status";
-
 import AppError from "../../../utils/AppError";
-
 import catchAsync from "../../../utils/catchAsync";
-
 import sendResponse from "../../../utils/sendResponse";
 
 import {
   AdminService,
 } from "../admin.service";
 
-export const ProductController =
-  {
-    getAdminProducts:
-      catchAsync(
-        async (
-          req: Request,
-          res: Response
-        ) => {
-          const result =
-            await AdminService.getAdminProductsFromDB(
-              req.query
-            );
-
-          sendResponse(
-            res,
-            {
-              statusCode:
-                200,
-
-              success:
-                true,
-
-              message:
-                "Products retrieved successfully",
-
-              meta:
-                result.meta,
-
-              data:
-                result.data,
-            }
+export const ProductController = {
+ 
+  getAdminProducts:
+    catchAsync(
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        const result =
+          await AdminService.getAdminProductsFromDB(
+            req.query
           );
-        }
-      ),
 
-    getAdminProductById:
-      catchAsync(
-        async (
-          req: Request,
-          res: Response
-        ) => {
-          const productId =
-            String(
-              req.params
-                .productId
-            );
+        sendResponse(
+          res,
+          {
+            statusCode:
+              200,
 
-          const product =
-            await AdminService.getAdminProductByIdFromDB(
-              productId
-            );
+            success:
+              true,
 
-          if (
-            !product
-          ) {
-            throw new AppError(
-              httpStatus.NOT_FOUND,
-              "Product not found"
-            );
+            message:
+              "Products retrieved successfully",
+
+            meta:
+              result.meta,
+
+            data:
+              result.data,
           }
+        );
+      }
+    ),
 
-          sendResponse(
-            res,
-            {
-              statusCode:
-                200,
+ 
+  getAdminProductById:
+    catchAsync(
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        const productId =
+          String(
+            req.params
+              .productId
+          );
 
-              success:
-                true,
+        const product =
+          await AdminService.getAdminProductByIdFromDB(
+            productId
+          );
 
-              message:
-                "Product details retrieved successfully",
-
-              data:
-                product,
-            }
+        if (!product) {
+          throw new AppError(
+            httpStatus.NOT_FOUND,
+            "Product not found"
           );
         }
-      ),
 
-    disableProduct:
-      catchAsync(
-        async (
-          req: Request,
-          res: Response
-        ) => {
-          const productId =
-            String(
-              req.params
-                .productId
-            );
+        sendResponse(
+          res,
+          {
+            statusCode:
+              200,
 
-          const updatedProduct =
-            await AdminService.disableProductInDB(
-              productId
-            );
+            success:
+              true,
 
-          if (
-            !updatedProduct
-          ) {
-            throw new AppError(
-              404,
-              "Product not found"
-            );
+            message:
+              "Product details retrieved successfully",
+
+            data:
+              product,
           }
+        );
+      }
+    ),
 
-          sendResponse(
-            res,
-            {
-              statusCode:
-                200,
-
-              success:
-                true,
-
-              message:
-                "Product disabled successfully",
-
-              data:
-                updatedProduct,
-            }
+  
+  approveProduct:
+    catchAsync(
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        const productId =
+          String(
+            req.params
+              .productId
           );
-        }
-      ),
 
-    restoreProduct:
-      catchAsync(
-        async (
-          req: Request,
-          res: Response
-        ) => {
-          const productId =
-            String(
-              req.params
-                .productId
-            );
+        const adminEmail =
+          req.user?.email;
 
-          const updatedProduct =
-            await AdminService.restoreProductInDB(
-              productId
-            );
+        const product =
+          await AdminService.approveProductInDB(
+            productId,
+            adminEmail
+          );
 
-          if (
-            !updatedProduct
-          ) {
-            throw new AppError(
-              404,
-              "Product not found"
-            );
+        sendResponse(
+          res,
+          {
+            statusCode:
+              200,
+
+            success:
+              true,
+
+            message:
+              "Product approved successfully",
+
+            data:
+              product,
           }
+        );
+      }
+    ),
 
-          sendResponse(
-            res,
-            {
-              statusCode:
-                200,
-
-              success:
-                true,
-
-              message:
-                "Product restored successfully",
-
-              data:
-                updatedProduct,
-            }
+  
+  rejectProduct:
+    catchAsync(
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        const productId =
+          String(
+            req.params
+              .productId
           );
-        }
-      ),
 
-    removeProduct:
-      catchAsync(
-        async (
-          req: Request,
-          res: Response
-        ) => {
-          const productId =
-            String(
-              req.params
-                .productId
-            );
+        const reason =
+          typeof req.body
+            ?.reason ===
+          "string"
+            ? req.body.reason
+            : undefined;
 
-          const updatedProduct =
-            await AdminService.removeProductInDB(
-              productId
-            );
+        const product =
+          await AdminService.rejectProductInDB(
+            productId,
+            reason
+          );
 
-          if (
-            !updatedProduct
-          ) {
-            throw new AppError(
-              404,
-              "Product not found"
-            );
+        sendResponse(
+          res,
+          {
+            statusCode:
+              200,
+
+            success:
+              true,
+
+            message:
+              "Product rejected successfully",
+
+            data:
+              product,
           }
+        );
+      }
+    ),
 
-          sendResponse(
-            res,
-            {
-              statusCode:
-                200,
+  /**
+   */
+  disableProduct:
+    catchAsync(
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        const productId =
+          String(
+            req.params
+              .productId
+          );
 
-              success:
-                true,
+        const updatedProduct =
+          await AdminService.disableProductInDB(
+            productId
+          );
 
-              message:
-                "Product removed successfully",
-
-              data:
-                updatedProduct,
-            }
+        if (
+          !updatedProduct
+        ) {
+          throw new AppError(
+            404,
+            "Product not found"
           );
         }
-      ),
-  };
+
+        sendResponse(
+          res,
+          {
+            statusCode:
+              200,
+
+            success:
+              true,
+
+            message:
+              "Product disabled successfully",
+
+            data:
+              updatedProduct,
+          }
+        );
+      }
+    ),
+
+  /**
+   */
+  restoreProduct:
+    catchAsync(
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        const productId =
+          String(
+            req.params
+              .productId
+          );
+
+        const updatedProduct =
+          await AdminService.restoreProductInDB(
+            productId
+          );
+
+        if (
+          !updatedProduct
+        ) {
+          throw new AppError(
+            404,
+            "Product not found"
+          );
+        }
+
+        sendResponse(
+          res,
+          {
+            statusCode:
+              200,
+
+            success:
+              true,
+
+            message:
+              "Product restored successfully",
+
+            data:
+              updatedProduct,
+          }
+        );
+      }
+    ),
+
+  /**
+   * REMOVE PRODUCT
+
+   */
+  removeProduct:
+    catchAsync(
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        const productId =
+          String(
+            req.params
+              .productId
+          );
+
+        const updatedProduct =
+          await AdminService.removeProductInDB(
+            productId
+          );
+
+        if (
+          !updatedProduct
+        ) {
+          throw new AppError(
+            404,
+            "Product not found"
+          );
+        }
+
+        sendResponse(
+          res,
+          {
+            statusCode:
+              200,
+
+            success:
+              true,
+
+            message:
+              "Product removed successfully",
+
+            data:
+              updatedProduct,
+          }
+        );
+      }
+    ),
+};

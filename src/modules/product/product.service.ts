@@ -22,389 +22,324 @@ const escapeRegex = (
     "\\$&"
   );
 
-const buildSortConditions =
-  (
-    query:
-      IProductQueryParams
-  ): Record<
-    string,
-    1 | -1
-  > => {
-    switch (
-      query.sort
-    ) {
-      case "oldest":
-        return {
-          createdAt: 1,
-        };
-
-      case "price_asc":
-        return {
-          price: 1,
-        };
-
-      case "price_desc":
-        return {
-          price: -1,
-        };
-
-      case "quantity_desc":
-        return {
-          quantity: -1,
-        };
-
-      case "newest":
-        return {
-          createdAt: -1,
-        };
-
-      default:
-        break;
-    }
-
-    if (
-      query.sortBy
-    ) {
+const buildSortConditions = (
+  query: IProductQueryParams
+): Record<string, 1 | -1> => {
+  switch (query.sort) {
+    case "oldest":
       return {
-        [query.sortBy]:
-          query.sortOrder ===
-          "asc"
-            ? 1
-            : -1,
+        createdAt: 1,
       };
-    }
 
+    case "price_asc":
+      return {
+        price: 1,
+      };
+
+    case "price_desc":
+      return {
+        price: -1,
+      };
+
+    case "quantity_desc":
+      return {
+        quantity: -1,
+      };
+
+    case "newest":
+      return {
+        createdAt: -1,
+      };
+
+    default:
+      break;
+  }
+
+  if (query.sortBy) {
     return {
-      createdAt: -1,
+      [query.sortBy]:
+        query.sortOrder === "asc"
+          ? 1
+          : -1,
     };
+  }
+
+  return {
+    createdAt: -1,
   };
+};
 
-const applyCommonFilters =
-  (
-    queryObj:
-      Record<
-        string,
-        any
-      >,
+const applyCommonFilters = (
+  queryObj: Record<string, any>,
+  query: IProductQueryParams
+) => {
+  if (query.search?.trim()) {
+    const searchRegex = new RegExp(
+      escapeRegex(
+        query.search.trim()
+      ),
+      "i"
+    );
 
-    query:
-      IProductQueryParams
-  ) => {
-    if (
-      query.search
-        ?.trim()
-    ) {
-      const searchRegex =
-        new RegExp(
-          escapeRegex(
-            query.search.trim()
-          ),
-          "i"
-        );
+    queryObj.$or = [
+      {
+        title: searchRegex,
+      },
+      {
+        description: searchRegex,
+      },
+      {
+        location: searchRegex,
+      },
+      {
+        district: searchRegex,
+      },
+    ];
+  }
 
-      queryObj.$or = [
-        {
-          title:
-            searchRegex,
-        },
+  if (
+    query.category &&
+    query.category !== "all"
+  ) {
+    queryObj.category =
+      query.category;
+  }
 
-        {
-          description:
-            searchRegex,
-        },
+  if (query.transactionType) {
+    queryObj.transactionType =
+      query.transactionType;
+  }
 
-        {
-          location:
-            searchRegex,
-        },
+  if (query.productionMethod) {
+    queryObj.productionMethod =
+      query.productionMethod;
+  }
 
-        {
-          district:
-            searchRegex,
-        },
-      ];
-    }
-
-    if (
-      query.category &&
-      query.category !==
-        "all"
-    ) {
-      queryObj.category =
-        query.category;
-    }
-
-    if (
-      query.transactionType
-    ) {
-      queryObj.transactionType =
-        query.transactionType;
-    }
-
-    if (
-      query.productionMethod
-    ) {
-      queryObj.productionMethod =
-        query.productionMethod;
-    }
-
-    if (
-      query.location
-        ?.trim()
-    ) {
-      const locationRegex =
-        new RegExp(
-          escapeRegex(
-            query.location.trim()
-          ),
-          "i"
-        );
-
-      queryObj.$and = [
-        ...(
-          queryObj.$and ||
-          []
+  if (query.location?.trim()) {
+    const locationRegex =
+      new RegExp(
+        escapeRegex(
+          query.location.trim()
         ),
+        "i"
+      );
 
-        {
-          $or: [
-            {
-              location:
-                locationRegex,
-            },
+    queryObj.$and = [
+      ...(queryObj.$and || []),
+      {
+        $or: [
+          {
+            location:
+              locationRegex,
+          },
+          {
+            division:
+              locationRegex,
+          },
+          {
+            district:
+              locationRegex,
+          },
+          {
+            upazila:
+              locationRegex,
+          },
+        ],
+      },
+    ];
+  }
 
-            {
-              division:
-                locationRegex,
-            },
+  if (
+    query.minPrice ||
+    query.maxPrice
+  ) {
+    queryObj.price = {};
 
-            {
-              district:
-                locationRegex,
-            },
-
-            {
-              upazila:
-                locationRegex,
-            },
-          ],
-        },
-      ];
+    if (query.minPrice) {
+      queryObj.price.$gte =
+        Number(
+          query.minPrice
+        );
     }
 
-    if (
-      query.minPrice ||
-      query.maxPrice
-    ) {
-      queryObj.price =
-        {};
-
-      if (
-        query.minPrice
-      ) {
-        queryObj
-          .price
-          .$gte =
-          Number(
-            query.minPrice
-          );
-      }
-
-      if (
-        query.maxPrice
-      ) {
-        queryObj
-          .price
-          .$lte =
-          Number(
-            query.maxPrice
-          );
-      }
+    if (query.maxPrice) {
+      queryObj.price.$lte =
+        Number(
+          query.maxPrice
+        );
     }
+  }
+};
+
+/**
+ * Create product
+ *
+ * IMPORTANT:
+ * Farmer-created products are always
+ * created as "pending".
+ *
+ * Farmer cannot approve their own product.
+ */
+const createProductInDB = async (
+  payload: IProduct
+) => {
+  const transactionType =
+    payload.transactionType ??
+    "sale";
+
+  const price =
+    transactionType === "free"
+      ? 0
+      : payload.price;
+
+  if (
+    transactionType === "sale" &&
+    price <= 0
+  ) {
+    throw new AppError(
+      400,
+      "Sale products must have a price greater than 0"
+    );
+  }
+
+  if (
+    payload.category ===
+      "poultry" &&
+    !payload.poultryDetails
+      ?.poultryType
+  ) {
+    throw new AppError(
+      400,
+      "Poultry type is required for poultry listings"
+    );
+  }
+
+  return Product.create({
+    ...payload,
+
+    transactionType,
+
+    productionMethod:
+      payload.productionMethod ??
+      "conventional",
+
+    price,
+
+    poultryDetails:
+      payload.category === "poultry"
+        ? payload.poultryDetails
+        : undefined,
+
+    byProductUses:
+      payload.category === "by_products"
+        ? payload.byProductUses ?? []
+        : [],
+
+    /**
+     * NEVER trust seller-provided status.
+     *
+     * Every new listing waits for admin approval.
+     */
+    status: "pending",
+
+    isDeleted: false,
+  });
+};
+
+/**
+ * Public marketplace products.
+ *
+ * Only approved/available products
+ * are visible to customers.
+ */
+const getProductsFromDB = async (
+  query: IProductQueryParams
+) => {
+  const queryObj: Record<
+    string,
+    any
+  > = {
+    isDeleted: {
+      $ne: true,
+    },
+
+    status:
+      query.status ===
+      "out_of_stock"
+        ? "out_of_stock"
+        : "available",
   };
 
-const createProductInDB =
-  async (
-    payload:
-      IProduct
-  ) => {
-    const transactionType =
-      payload.transactionType ??
-      "sale";
+  applyCommonFilters(
+    queryObj,
+    query
+  );
 
-    const price =
-      transactionType ===
-      "free"
-        ? 0
-        : payload.price;
+  const page = Math.max(
+    Number(query.page) || 1,
+    1
+  );
 
-    if (
-      transactionType ===
-        "sale" &&
-      price <= 0
-    ) {
-      throw new AppError(
-        400,
-        "Sale products must have a price greater than 0"
-      );
-    }
+  const limit = Math.min(
+    Math.max(
+      Number(query.limit) || 12,
+      1
+    ),
+    50
+  );
 
-    if (
-      payload.category ===
-        "poultry" &&
-      !payload
-        .poultryDetails
-        ?.poultryType
-    ) {
-      throw new AppError(
-        400,
-        "Poultry type is required for poultry listings"
-      );
-    }
+  const skip =
+    (page - 1) * limit;
 
-    return Product.create({
-      ...payload,
-
-      transactionType,
-
-      productionMethod:
-        payload.productionMethod ??
-        "conventional",
-
-      price,
-
-      poultryDetails:
-        payload.category ===
-        "poultry"
-          ? payload.poultryDetails
-          : undefined,
-
-      byProductUses:
-        payload.category ===
-        "by_products"
-          ? payload.byProductUses ??
-            []
-          : [],
-
-      status:
-        payload.status ===
-        "out_of_stock"
-          ? "out_of_stock"
-          : "available",
-
-      isDeleted:
-        false,
-    });
-  };
-
-const getProductsFromDB =
-  async (
-    query:
-      IProductQueryParams
-  ) => {
-    const queryObj:
-      Record<
-        string,
-        any
-      > = {
-        isDeleted: {
-          $ne: true,
-        },
-
-        status:
-          query.status ===
-          "out_of_stock"
-            ? "out_of_stock"
-            : "available",
-      };
-
-    applyCommonFilters(
-      queryObj,
+  const sortConditions =
+    buildSortConditions(
       query
     );
 
-    const page =
-      Math.max(
-        Number(
-          query.page
-        ) || 1,
-        1
-      );
+  const [
+    products,
+    total,
+  ] = await Promise.all([
+    Product.find(queryObj)
+      .select(
+        "-sellerEmail -sellerContact"
+      )
+      .sort(sortConditions)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
 
-    const limit =
-      Math.min(
-        Math.max(
-          Number(
-            query.limit
-          ) || 12,
-          1
-        ),
-        50
-      );
+    Product.countDocuments(
+      queryObj
+    ),
+  ]);
 
-    const skip =
-      (
-        page - 1
-      ) *
-      limit;
-
-    const sortConditions =
-      buildSortConditions(
-        query
-      );
-
-    const [
-      products,
+  return {
+    meta: {
+      page,
+      limit,
       total,
-    ] =
-      await Promise.all([
-        Product.find(
-          queryObj
-        )
-          .select(
-            "-sellerEmail -sellerContact"
-          )
-          .sort(
-            sortConditions
-          )
-          .skip(skip)
-          .limit(limit)
-          .lean(),
-
-        Product.countDocuments(
-          queryObj
+      totalPages: Math.max(
+        Math.ceil(
+          total / limit
         ),
-      ]);
+        1
+      ),
+    },
 
-    return {
-      meta: {
-        page,
-        limit,
-        total,
-
-        totalPages:
-          Math.max(
-            Math.ceil(
-              total /
-                limit
-            ),
-            1
-          ),
-      },
-
-      data:
-        products,
-    };
+    data: products,
   };
+};
 
+/**
+ * Public single product.
+ */
 const getProductByIdFromDB =
   async (
     id: string
   ) => {
     if (
-      !isValidObjectId(
-        id
-      )
+      !isValidObjectId(id)
     ) {
       throw new AppError(
         400,
@@ -413,30 +348,26 @@ const getProductByIdFromDB =
     }
 
     const product =
-      await Product.findOne(
-        {
-          _id: id,
+      await Product.findOne({
+        _id: id,
 
-          isDeleted: {
-            $ne: true,
-          },
+        isDeleted: {
+          $ne: true,
+        },
 
-          status: {
-            $in: [
-              "available",
-              "out_of_stock",
-            ],
-          },
-        }
-      )
+        status: {
+          $in: [
+            "available",
+            "out_of_stock",
+          ],
+        },
+      })
         .select(
           "-sellerEmail -sellerContact"
         )
         .lean();
 
-    if (
-      !product
-    ) {
+    if (!product) {
       throw new AppError(
         404,
         "Product not found"
@@ -446,65 +377,53 @@ const getProductByIdFromDB =
     return product;
   };
 
+/**
+ * Farmer's own listings.
+ */
 const getMyListingsFromDB =
   async (
-    query:
-      IMyListingsQueryParams,
-
-    sellerEmail:
-      string
+    query: IMyListingsQueryParams,
+    sellerEmail: string
   ) => {
-    const queryObj:
-      Record<
-        string,
-        any
-      > = {
-        sellerEmail:
-          sellerEmail
-            .trim()
-            .toLowerCase(),
+    const queryObj: Record<
+      string,
+      any
+    > = {
+      sellerEmail:
+        sellerEmail
+          .trim()
+          .toLowerCase(),
 
-        isDeleted: {
-          $ne: true,
-        },
-      };
+      isDeleted: {
+        $ne: true,
+      },
+    };
 
     applyCommonFilters(
       queryObj,
       query
     );
 
-    if (
-      query.status
-    ) {
+    if (query.status) {
       queryObj.status =
         query.status;
     }
 
-    const page =
-      Math.max(
-        Number(
-          query.page
-        ) || 1,
-        1
-      );
+    const page = Math.max(
+      Number(query.page) || 1,
+      1
+    );
 
-    const limit =
-      Math.min(
-        Math.max(
-          Number(
-            query.limit
-          ) || 20,
-          1
-        ),
-        50
-      );
+    const limit = Math.min(
+      Math.max(
+        Number(query.limit) || 20,
+        1
+      ),
+      50
+    );
 
     const skip =
-      (
-        page - 1
-      ) *
-      limit;
+      (page - 1) * limit;
 
     const sortConditions =
       buildSortConditions(
@@ -514,58 +433,49 @@ const getMyListingsFromDB =
     const [
       products,
       total,
-    ] =
-      await Promise.all([
-        Product.find(
-          queryObj
-        )
-          .sort(
-            sortConditions
-          )
-          .skip(skip)
-          .limit(limit)
-          .lean(),
+    ] = await Promise.all([
+      Product.find(queryObj)
+        .sort(sortConditions)
+        .skip(skip)
+        .limit(limit)
+        .lean(),
 
-        Product.countDocuments(
-          queryObj
-        ),
-      ]);
+      Product.countDocuments(
+        queryObj
+      ),
+    ]);
 
     return {
       meta: {
         page,
         limit,
         total,
-
-        totalPages:
-          Math.max(
-            Math.ceil(
-              total /
-                limit
-            ),
-            1
+        totalPages: Math.max(
+          Math.ceil(
+            total / limit
           ),
+          1
+        ),
       },
 
-      data:
-        products,
+      data: products,
     };
   };
 
+/**
+ * Farmer updates own product.
+ *
+ * Any meaningful update sends the listing
+ * back to PENDING so admin can review it again.
+ */
 const updateProductInDB =
   async (
     id: string,
-
-    sellerEmail:
-      string,
-
-    payload:
-      Partial<IProduct>
+    sellerEmail: string,
+    payload: Partial<IProduct>
   ) => {
     if (
-      !isValidObjectId(
-        id
-      )
+      !isValidObjectId(id)
     ) {
       throw new AppError(
         400,
@@ -574,76 +484,64 @@ const updateProductInDB =
     }
 
     const product =
-      await Product.findOne(
-        {
-          _id: id,
+      await Product.findOne({
+        _id: id,
 
-          sellerEmail:
-            sellerEmail
-              .trim()
-              .toLowerCase(),
+        sellerEmail:
+          sellerEmail
+            .trim()
+            .toLowerCase(),
 
-          isDeleted: {
-            $ne: true,
-          },
-        }
-      );
+        isDeleted: {
+          $ne: true,
+        },
+      });
 
-    if (
-      !product
-    ) {
+    if (!product) {
       throw new AppError(
         404,
         "Product not found or you are not allowed to update it"
       );
     }
 
-    const allowedFields =
-      [
-        "title",
-        "description",
-        "price",
-        "category",
-        "transactionType",
-        "productionMethod",
-        "quantity",
-        "unit",
-        "images",
-        "sellerContact",
-        "location",
-        "division",
-        "district",
-        "upazila",
-        "poultryDetails",
-        "byProductUses",
-      ] as const;
+    const allowedFields = [
+      "title",
+      "description",
+      "price",
+      "category",
+      "transactionType",
+      "productionMethod",
+      "quantity",
+      "unit",
+      "images",
+      "sellerContact",
+      "location",
+      "division",
+      "district",
+      "upazila",
+      "poultryDetails",
+      "byProductUses",
+    ] as const;
+
+    let hasListingChanges =
+      false;
 
     for (
       const field of
-      allowedFields
+        allowedFields
     ) {
       const value =
         payload[field];
 
       if (
-        value !==
-        undefined
+        value !== undefined
       ) {
         (
           product as any
-        )[field] =
-          value;
-      }
-    }
+        )[field] = value;
 
-    if (
-      payload.status ===
-        "available" ||
-      payload.status ===
-        "out_of_stock"
-    ) {
-      product.status =
-        payload.status;
+        hasListingChanges = true;
+      }
     }
 
     const transactionType =
@@ -654,16 +552,13 @@ const updateProductInDB =
       transactionType ===
       "free"
     ) {
-      product.price =
-        0;
+      product.price = 0;
     }
 
     if (
       transactionType ===
         "sale" &&
-      Number(
-        product.price
-      ) <= 0
+      Number(product.price) <= 0
     ) {
       throw new AppError(
         400,
@@ -674,8 +569,7 @@ const updateProductInDB =
     if (
       product.category ===
         "poultry" &&
-      !product
-        .poultryDetails
+      !product.poultryDetails
         ?.poultryType
     ) {
       throw new AppError(
@@ -701,15 +595,21 @@ const updateProductInDB =
     }
 
     if (
-      Number(
-        product.quantity
-      ) <= 0
+      Number(product.quantity) <=
+      0
     ) {
-      product.quantity =
-        0;
-
+      product.quantity = 0;
       product.status =
         "out_of_stock";
+    } else if (
+      hasListingChanges
+    ) {
+      /**
+       * If farmer changes product information,
+       * send it back for admin approval.
+       */
+      product.status =
+        "pending";
     }
 
     await product.save();
@@ -717,17 +617,16 @@ const updateProductInDB =
     return product;
   };
 
+/**
+ * Farmer deletes own listing.
+ */
 const deleteProductFromDB =
   async (
     id: string,
-
-    sellerEmail:
-      string
+    sellerEmail: string
   ) => {
     if (
-      !isValidObjectId(
-        id
-      )
+      !isValidObjectId(id)
     ) {
       throw new AppError(
         400,
@@ -752,25 +651,20 @@ const deleteProductFromDB =
 
         {
           $set: {
-            isDeleted:
-              true,
+            isDeleted: true,
 
-            status:
-              "disabled",
+            status: "disabled",
           },
         },
 
         {
           new: true,
 
-          runValidators:
-            true,
+          runValidators: true,
         }
       );
 
-    if (
-      !result
-    ) {
+    if (!result) {
       throw new AppError(
         404,
         "Product not found or you are not allowed to delete it"
@@ -780,17 +674,16 @@ const deleteProductFromDB =
     return result;
   };
 
-export const ProductService =
-  {
-    createProductInDB,
+export const ProductService = {
+  createProductInDB,
 
-    getProductsFromDB,
+  getProductsFromDB,
 
-    getProductByIdFromDB,
+  getProductByIdFromDB,
 
-    getMyListingsFromDB,
+  getMyListingsFromDB,
 
-    updateProductInDB,
+  updateProductInDB,
 
-    deleteProductFromDB,
-  };
+  deleteProductFromDB,
+};

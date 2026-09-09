@@ -4,7 +4,6 @@ import { WeatherRoutes } from "../app/modules/weather/weather.route";
 import aiRouter from "../modules/ai/ai.route.js";
 import { ProductRoutes } from "../modules/product/product.route";
 import financeRouter from "../modules/finance/finance.route.js";
-import { PurchaseRequestRoutes } from "../modules/purchase-request/purchaseRequest.route";
 import investmentRouter from "../modules/investment/investment.route.js";
 import { AdminRoutes } from "../modules/admin/admin.route";
 import { ConsultationRoutes } from "../app/modules/consultation/consultation.route";
@@ -37,10 +36,6 @@ const moduleRoutes = [
   {
     path: "/marketplace",
     route: ProductRoutes,
-  },
-  {
-    path: "/purchase-requests",
-    route: PurchaseRequestRoutes,
   },
   {
     path: "/finance",

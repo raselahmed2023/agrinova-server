@@ -103,8 +103,9 @@ const userSchema = new Schema<IUserDocument>(
   }
 );
 
+const authDb = mongoose.connection.useDb("AgriNove-auth");
 export const UserModel =
-  mongoose.models.User || model<IUserDocument>("User", userSchema);
+  authDb.models.User || authDb.model<IUserDocument>("User", userSchema, "user");
 
 export const defaultAvailabilitySlots: IAvailabilitySlot[] = [
   { day: "SATURDAY", enabled: true, startTime: "18:00", endTime: "21:00" },
@@ -179,42 +180,38 @@ const getExpertProfileFromDB = async (
   if (userDoc) {
     const spec = Array.isArray(userDoc.specialization)
       ? userDoc.specialization
-      : userDoc.specialization
-      ? [userDoc.specialization]
-      : [
-          "Plant Pathology",
-          "Crop Disease Management",
-          "Soil Nutrition & Fertility",
-        ];
+      : typeof userDoc.specialization === "string" && userDoc.specialization.trim()
+      ? userDoc.specialization.split(",").map((s: string) => s.trim())
+      : ["General Agriculture", "Crop Protection"];
 
     return {
       id: userDoc._id.toString(),
       _id: userDoc._id.toString(),
       name: userDoc.name || expertUser.name || "Specialist",
       email: userDoc.email,
-      phone: userDoc.phone || "+880 1712-345678",
+      phone: userDoc.phone || "",
       avatar:
         userDoc.avatar ||
         userDoc.image ||
         "/images/default-avatar.png",
-      title: userDoc.title || "Senior Agronomist & Plant Pathologist",
+      title: userDoc.title || "Agricultural Expert",
       specialization: spec,
-      bio:
-        userDoc.bio ||
-        "Over 14 years of research and field advisory experience in cereal and horticulture crops across Bangladesh.",
-      experienceYears: userDoc.experienceYears || 14,
-      qualification:
-        userDoc.qualification ||
-        "Ph.D. in Plant Pathology (BAU), M.Sc. in Agriculture",
-      institution:
-        userDoc.institution ||
-        "Bangladesh Agricultural University (BAU) / AgriNova Advisory Board",
-      rating: userDoc.rating || 4.9,
-      ratingCount: userDoc.ratingCount || 128,
-      totalConsultations: userDoc.totalConsultations || 342,
-      consultationFee: userDoc.consultationFee || 500,
-      languages: userDoc.languages || ["Bengali", "English"],
-      location: userDoc.location || "Dhaka / Mymensingh, Bangladesh",
+      bio: userDoc.bio || "",
+      experienceYears:
+        typeof userDoc.experienceYears === "number" ? userDoc.experienceYears : 0,
+      qualification: userDoc.qualification || "",
+      institution: userDoc.institution || "",
+      rating: typeof userDoc.rating === "number" ? userDoc.rating : 5.0,
+      ratingCount: typeof userDoc.ratingCount === "number" ? userDoc.ratingCount : 0,
+      totalConsultations:
+        typeof userDoc.totalConsultations === "number" ? userDoc.totalConsultations : 0,
+      consultationFee:
+        typeof userDoc.consultationFee === "number" ? userDoc.consultationFee : 500,
+      languages:
+        Array.isArray(userDoc.languages) && userDoc.languages.length > 0
+          ? userDoc.languages
+          : ["Bengali", "English"],
+      location: userDoc.location || "",
       isVerified: userDoc.isVerified !== false,
     };
   }
@@ -222,29 +219,22 @@ const getExpertProfileFromDB = async (
   return {
     id: expertUser.id,
     _id: expertUser.id,
-    name: expertUser.name || "Dr. Rafiqul Islam",
+    name: expertUser.name || "Specialist",
     email: expertUser.email,
-    phone: "+880 1712-345678",
-    avatar:
-      "/images/default-avatar.png",
-    title: "Senior Agronomist & Plant Pathologist",
-    specialization: [
-      "Plant Pathology",
-      "Crop Disease Management",
-      "Pest Control (IPM)",
-      "Soil Nutrition & Fertility",
-    ],
-    bio: "Over 14 years of research and field advisory experience in cereal and horticulture crops across Bangladesh.",
-    experienceYears: 14,
-    qualification: "Ph.D. in Plant Pathology (BAU), M.Sc. in Agriculture",
-    institution:
-      "Bangladesh Agricultural University (BAU) / AgriNova Advisory Board",
-    rating: 4.9,
-    ratingCount: 128,
-    totalConsultations: 342,
+    phone: "",
+    avatar: "/images/default-avatar.png",
+    title: "Agricultural Expert",
+    specialization: ["General Agriculture", "Crop Protection"],
+    bio: "",
+    experienceYears: 0,
+    qualification: "",
+    institution: "",
+    rating: 5.0,
+    ratingCount: 0,
+    totalConsultations: 0,
     consultationFee: 500,
     languages: ["Bengali", "English"],
-    location: "Dhaka / Mymensingh, Bangladesh",
+    location: "",
     isVerified: true,
   };
 };
@@ -267,18 +257,26 @@ const updateExpertProfileInDB = async (
   delete updateData._id;
   delete updateData.id;
 
-  if (payload.avatar) {
+  if (payload.avatar !== undefined) {
     updateData.image = payload.avatar;
+    updateData.avatar = payload.avatar;
   }
-  if ((payload as any).profileImage) {
+  if ((payload as any).image !== undefined) {
+    updateData.image = (payload as any).image;
+    updateData.avatar = (payload as any).image;
+  }
+  if ((payload as any).profileImage !== undefined) {
     updateData.image = (payload as any).profileImage;
     updateData.avatar = (payload as any).profileImage;
+  }
+  if (typeof payload.consultationFee === "number") {
+    updateData.consultationFee = payload.consultationFee;
   }
 
   await UserModel.findOneAndUpdate(
     filter,
     { $set: updateData },
-    { upsert: true }
+    { upsert: true, new: true }
   );
   return getExpertProfileFromDB(expertUser);
 };
@@ -373,248 +371,58 @@ const updateExpertAvailabilityInDB = async (
   return getExpertAvailabilityFromDB(expertUser);
 };
 
-export const mockSpecialistsList = [
-  {
-    id: "exp-001",
-    _id: "exp-001",
-    name: "Dr. Rafiqul Islam",
-    email: "dr.rafiqul@agrinova.io",
-    title: "Senior Agronomist & Plant Pathologist",
-    institution: "Bangladesh Agricultural University (BAU)",
-    avatar:
-      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80",
-    specialization: [
-      "Plant Pathology",
-      "Fungal Diagnostics",
-      "Crop Protection",
-      "Rice & Cereal Diseases",
-    ],
-    bio: "Over 14 years of research and field advisory experience in cereal and horticulture crops across Bangladesh. Specializing in sustainable crop protection and fungal diagnostics.",
-    qualification: "Ph.D. in Plant Pathology (BAU), M.Sc. in Agriculture",
-    rating: 4.9,
-    ratingCount: 128,
-    experienceYears: 14,
-    totalConsultations: 342,
-    consultationFee: 500,
-    languages: ["Bengali", "English"],
-    location: "Mymensingh / Dhaka",
-    isVerified: true,
-    availabilityStatus: "AVAILABLE",
-    availabilitySlots: [
-      { day: "SATURDAY", enabled: true, startTime: "18:00", endTime: "21:00" },
-      { day: "SUNDAY", enabled: true, startTime: "18:00", endTime: "21:00" },
-      { day: "TUESDAY", enabled: true, startTime: "17:00", endTime: "20:00" },
-      { day: "THURSDAY", enabled: true, startTime: "18:00", endTime: "21:00" },
-    ],
-  },
-  {
-    id: "exp-002",
-    _id: "exp-002",
-    name: "Dr. Farhana Yasmin",
-    email: "dr.farhana@agrinova.io",
-    title: "Chief Soil Scientist & Nutritionist",
-    institution: "Bangladesh Agricultural Research Institute (BARI)",
-    avatar:
-      "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80",
-    specialization: [
-      "Soil Fertility & pH",
-      "Micronutrient Deficiency",
-      "Organic Composting",
-      "Salinity Management",
-    ],
-    bio: "Pioneering soil rehabilitation in the coastal and northern regions of Bangladesh. Expert in correcting zinc/boron deficiencies and balancing organic NPK fertilizers.",
-    qualification: "Ph.D. in Soil Science (BARI/DAE)",
-    rating: 4.95,
-    ratingCount: 94,
-    experienceYears: 11,
-    totalConsultations: 215,
-    consultationFee: 450,
-    languages: ["Bengali", "English"],
-    location: "Gazipur / Jessore",
-    isVerified: true,
-    availabilityStatus: "AVAILABLE",
-    availabilitySlots: [
-      { day: "SUNDAY", enabled: true, startTime: "15:00", endTime: "18:30" },
-      { day: "MONDAY", enabled: true, startTime: "16:00", endTime: "19:00" },
-      { day: "WEDNESDAY", enabled: true, startTime: "15:00", endTime: "18:30" },
-      { day: "SATURDAY", enabled: true, startTime: "14:00", endTime: "17:00" },
-    ],
-  },
-  {
-    id: "exp-003",
-    _id: "exp-003",
-    name: "Eng. Tanvir Ahmed",
-    email: "eng.tanvir@agrinova.io",
-    title: "Precision Irrigation & Climate Specialist",
-    institution: "AgriNova Smart Farming Labs / BUET",
-    avatar:
-      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80",
-    specialization: [
-      "Drip & Sprinkler Systems",
-      "IoT Soil Moisture Sensors",
-      "Greenhouse Climate",
-      "Water Conservation",
-    ],
-    bio: "Helping farmers optimize water usage by up to 40% with precision drip lines, automation valves, and solar pump integration.",
-    qualification: "M.Sc. in Agricultural Engineering",
-    rating: 4.88,
-    ratingCount: 76,
-    experienceYears: 9,
-    totalConsultations: 180,
-    consultationFee: 400,
-    languages: ["Bengali", "English"],
-    location: "Bogra / Rajshahi",
-    isVerified: true,
-    availabilityStatus: "AVAILABLE",
-    availabilitySlots: [
-      { day: "SATURDAY", enabled: true, startTime: "19:00", endTime: "22:00" },
-      { day: "TUESDAY", enabled: true, startTime: "19:00", endTime: "22:00" },
-      { day: "THURSDAY", enabled: true, startTime: "19:00", endTime: "22:00" },
-      { day: "FRIDAY", enabled: true, startTime: "16:00", endTime: "19:00" },
-    ],
-  },
-  {
-    id: "exp-004",
-    _id: "exp-004",
-    name: "Dr. Selim Jahangir",
-    email: "dr.selim@agrinova.io",
-    title: "Horticulture & Fruit Orchard Consultant",
-    institution: "Horticulture Research Centre (HRC), Rajshahi",
-    avatar:
-      "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300&auto=format&fit=crop&q=80",
-    specialization: [
-      "Mango & Guava Management",
-      "Fruit Fly Control (Bactrocera)",
-      "Canopy Pruning",
-      "Post-Harvest Handling",
-    ],
-    bio: "Advisory consultant for commercial fruit orchards across Chapainawabganj and Rajshahi. Expert in organic fruit bagging, pruning, and fruit fly control.",
-    qualification: "Ph.D. in Pomology & Horticulture",
-    rating: 4.92,
-    ratingCount: 112,
-    experienceYears: 16,
-    totalConsultations: 290,
-    consultationFee: 500,
-    languages: ["Bengali", "English"],
-    location: "Rajshahi / Chapainawabganj",
-    isVerified: true,
-    availabilityStatus: "AVAILABLE",
-    availabilitySlots: [
-      { day: "MONDAY", enabled: true, startTime: "16:00", endTime: "19:30" },
-      { day: "WEDNESDAY", enabled: true, startTime: "16:00", endTime: "19:30" },
-      { day: "FRIDAY", enabled: true, startTime: "15:00", endTime: "18:00" },
-      { day: "SUNDAY", enabled: true, startTime: "17:00", endTime: "20:00" },
-    ],
-  },
-  {
-    id: "exp-005",
-    _id: "exp-005",
-    name: "Prof. Nazmul Huda",
-    email: "prof.nazmul@agrinova.io",
-    title: "Entomologist & Bio-Pesticide Researcher",
-    institution: "Sher-e-Bangla Agricultural University (SAU)",
-    avatar:
-      "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=300&auto=format&fit=crop&q=80",
-    specialization: [
-      "Fall Armyworm Control",
-      "Stem Borer & Planthopper",
-      "Biological Pest Control",
-      "Pheromone Trapping",
-    ],
-    bio: "Specializing in emergency pest infestation management, minimal-chemical integrated pest control, and protecting beneficial pollinators.",
-    qualification: "Professor of Entomology, Ph.D.",
-    rating: 4.89,
-    ratingCount: 88,
-    experienceYears: 18,
-    totalConsultations: 310,
-    consultationFee: 600,
-    languages: ["Bengali", "English"],
-    location: "Dhaka / Comilla",
-    isVerified: true,
-    availabilityStatus: "AVAILABLE",
-    availabilitySlots: [
-      { day: "SATURDAY", enabled: true, startTime: "17:30", endTime: "20:30" },
-      { day: "MONDAY", enabled: true, startTime: "18:00", endTime: "21:00" },
-      { day: "THURSDAY", enabled: true, startTime: "17:30", endTime: "20:30" },
-    ],
-  },
-  {
-    id: "exp-006",
-    _id: "exp-006",
-    name: "Dr. Shamsun Nahar",
-    email: "dr.shamsun@agrinova.io",
-    title: "Seed Science & Vegetable Specialist",
-    institution: "Bangladesh Rice Research Institute (BRRI)",
-    avatar:
-      "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=300&auto=format&fit=crop&q=80",
-    specialization: [
-      "Hybrid Seed Vigor",
-      "Vegetable Nursery Health",
-      "Late Blight in Potato",
-      "Hydroponic Greenery",
-    ],
-    bio: "Helping commercial vegetable and seedling growers diagnose early damping off, fungal wilts, and seed dormancy issues.",
-    qualification: "Ph.D. in Agronomy & Seed Pathology",
-    rating: 4.96,
-    ratingCount: 140,
-    experienceYears: 13,
-    totalConsultations: 260,
-    consultationFee: 350,
-    languages: ["Bengali", "English"],
-    location: "Rangpur / Dinajpur",
-    isVerified: true,
-    availabilityStatus: "AVAILABLE",
-    availabilitySlots: [
-      { day: "SUNDAY", enabled: true, startTime: "16:30", endTime: "19:30" },
-      { day: "TUESDAY", enabled: true, startTime: "16:30", endTime: "19:30" },
-      { day: "THURSDAY", enabled: true, startTime: "16:30", endTime: "19:30" },
-      { day: "SATURDAY", enabled: true, startTime: "10:00", endTime: "13:00" },
-    ],
-  },
-];
-
 const getAllExpertsFromDB = async () => {
   let dbExperts = [];
   try {
     dbExperts = await UserModel.find({
       role: "EXPERT",
-      status: "APPROVED",
-    }).limit(20);
-  } catch {
+      status: { $ne: "REJECTED" },
+    }).sort({ createdAt: -1 });
+  } catch (err) {
+    console.error("Failed to query experts from DB:", err);
     dbExperts = [];
   }
 
-  if (!dbExperts || dbExperts.length === 0) {
-    return mockSpecialistsList;
-  }
-
-  // Ensure DB experts have availability slots populated
+  // Ensure DB experts have availability slots and necessary fields populated
   const mappedDb = dbExperts.map((exp: any) => {
     const obj = exp.toObject ? exp.toObject() : exp;
+    const spec = Array.isArray(obj.specialization)
+      ? obj.specialization
+      : typeof obj.specialization === "string" && obj.specialization.trim()
+      ? obj.specialization.split(",").map((s: string) => s.trim())
+      : ["General Agriculture", "Crop Protection"];
+
     return {
       ...obj,
+      _id: obj._id?.toString() || obj.id,
       id: obj._id?.toString() || obj.id,
+      name: obj.name || "Registered Specialist",
+      email: obj.email,
+      phone: obj.phone || "",
+      specialization: spec,
       availabilitySlots:
         obj.availabilitySlots && obj.availabilitySlots.length > 0
           ? obj.availabilitySlots
           : defaultAvailabilitySlots,
       avatar: obj.avatar || obj.image || "/images/default-avatar.png",
+      image: obj.image || obj.avatar || "/images/default-avatar.png",
       institution: obj.institution || "AgriNova Specialist Network",
-      consultationFee: obj.consultationFee || 500,
-      rating: obj.rating || 4.9,
-      ratingCount: obj.ratingCount || 45,
-      experienceYears: obj.experienceYears || 10,
+      consultationFee: typeof obj.consultationFee === "number" ? obj.consultationFee : 500,
+      rating: typeof obj.rating === "number" ? obj.rating : 5.0,
+      ratingCount: typeof obj.ratingCount === "number" ? obj.ratingCount : 0,
+      experienceYears: typeof obj.experienceYears === "number" ? obj.experienceYears : 0,
+      title: obj.title || "Agricultural Expert",
+      bio: obj.bio || "",
+      qualification: obj.qualification || "",
+      location: obj.location || "",
+      languages:
+        Array.isArray(obj.languages) && obj.languages.length > 0
+          ? obj.languages
+          : ["Bengali", "English"],
+      isVerified: obj.isVerified !== false,
+      availabilityStatus: obj.availabilityStatus || "AVAILABLE",
     };
   });
-
-  // If fewer than 4 in DB, combine with mock specialists to provide full coverage
-  if (mappedDb.length < 4) {
-    const existingEmails = new Set(mappedDb.map((e: any) => e.email?.toLowerCase()));
-    const remainingMocks = mockSpecialistsList.filter(
-      (m) => !existingEmails.has(m.email.toLowerCase())
-    );
-    return [...mappedDb, ...remainingMocks];
-  }
 
   return mappedDb;
 };

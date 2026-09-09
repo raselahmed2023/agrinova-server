@@ -50,3 +50,14 @@ export const cropRecommendationSchema = z.object({
       .optional(),
   }),
 });
+
+export const treatmentRecommendationSchema = z.object({
+  body: z.object({
+    cropType: z.string().trim().min(1, "Crop type is required"),
+    problemTitle: z.string().trim().min(1, "Problem title is required"),
+    problemDescription: z.string().trim().min(1, "Problem description is required"),
+    urgency: z.string().optional(),
+    treatmentMode: z.enum(["integrated", "organic", "chemical"]).optional(),
+    farmDetails: z.string().optional(),
+  }),
+});

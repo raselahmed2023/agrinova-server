@@ -97,8 +97,34 @@ const diseaseDetection = async (
   }
 };
 
+const treatmentRecommendation = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const result = await AIService.treatmentRecommendation(req.body);
+
+    return res.status(200).json({
+      success: true,
+      message: "AI treatment recommendation formulated successfully",
+      data: result,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "AI treatment recommendation failed";
+
+    return res.status(500).json({
+      success: false,
+      message,
+    });
+  }
+};
+
 export const AIController = {
   farmingAssistant,
   cropRecommendation,
   diseaseDetection,
+  treatmentRecommendation,
 };

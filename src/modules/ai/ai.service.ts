@@ -4,10 +4,15 @@ import type {
   ICropRecommendationResponse,
   IDiseaseDetectionResult,
   IFarmingAssistantInput,
+  ITreatmentRecommendationInput,
+  ITreatmentRecommendationResult,
 } from "./ai.interface.js";
 
 import { generateWithGroq } from "./providers/groq.provider.js";
-import { detectDiseaseWithGemini } from "./providers/gemini.provider.js";
+import {
+  detectDiseaseWithGemini,
+  generateTreatmentRecommendationWithGemini,
+} from "./providers/gemini.provider.js";
 import { generateWithOpenRouter } from "./providers/openrouter.provider.js";
 
 const cleanJsonResponse = (text: string) => {
@@ -208,8 +213,52 @@ const diseaseDetection = async (
   }
 };
 
+const treatmentRecommendation = async (
+  payload: ITreatmentRecommendationInput
+): Promise<ITreatmentRecommendationResult> => {
+  const response = await generateTreatmentRecommendationWithGemini(payload);
+
+  try {
+    const parsed = JSON.parse(cleanJsonResponse(response));
+
+    const today = new Date();
+    const followUpDays =
+      typeof parsed.followUpDays === "number" && !isNaN(parsed.followUpDays)
+        ? parsed.followUpDays
+        : 7;
+    const futureDate = new Date(
+      today.getTime() + followUpDays * 24 * 60 * 60 * 1000
+    );
+    const followUpDateStr =
+      parsed.followUpDate || futureDate.toISOString().split("T")[0];
+
+    return {
+      diagnosis:
+        parsed.diagnosis ||
+        `Clinical agronomic diagnosis for ${payload.cropType} (${payload.problemTitle}). Follow prescribed management plan.`,
+      prescriptions: Array.isArray(parsed.prescriptions)
+        ? parsed.prescriptions.map((p: any) => String(p).trim()).filter(Boolean)
+        : [],
+      treatmentSteps: Array.isArray(parsed.treatmentSteps)
+        ? parsed.treatmentSteps.map((s: any) => String(s).trim()).filter(Boolean)
+        : [],
+      followUpDays,
+      followUpDate: followUpDateStr,
+      additionalNotes:
+        parsed.additionalNotes ||
+        "Wear protective gear during chemical or biological spray application. Observe recommended pre-harvest intervals.",
+      treatmentMode: payload.treatmentMode || "integrated",
+    };
+  } catch {
+    throw new Error(
+      "Gemini returned an invalid treatment recommendation response"
+    );
+  }
+};
+
 export const AIService = {
   farmingAssistant,
   cropRecommendation,
   diseaseDetection,
+  treatmentRecommendation,
 };

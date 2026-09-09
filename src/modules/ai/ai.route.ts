@@ -6,6 +6,7 @@ import { AIController } from "./ai.controller.js";
 import {
   cropRecommendationSchema,
   farmingAssistantSchema,
+  treatmentRecommendationSchema,
 } from "./ai.validation.js";
 
 const router = Router();
@@ -48,6 +49,12 @@ router.post(
   "/crop-recommendation",
   validateRequest(cropRecommendationSchema),
   AIController.cropRecommendation
+);
+
+router.post(
+  "/treatment-recommendation",
+  validateRequest(treatmentRecommendationSchema),
+  AIController.treatmentRecommendation
 );
 
 router.post(

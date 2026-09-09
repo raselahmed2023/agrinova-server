@@ -194,9 +194,9 @@ const getExpertProfileFromDB = async (
       email: userDoc.email,
       phone: userDoc.phone || "+880 1712-345678",
       avatar:
-        userDoc.image ||
         userDoc.avatar ||
-        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80",
+        userDoc.image ||
+        "/images/default-avatar.png",
       title: userDoc.title || "Senior Agronomist & Plant Pathologist",
       specialization: spec,
       bio:
@@ -226,7 +226,7 @@ const getExpertProfileFromDB = async (
     email: expertUser.email,
     phone: "+880 1712-345678",
     avatar:
-      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80",
+      "/images/default-avatar.png",
     title: "Senior Agronomist & Plant Pathologist",
     specialization: [
       "Plant Pathology",
@@ -598,6 +598,7 @@ const getAllExpertsFromDB = async () => {
         obj.availabilitySlots && obj.availabilitySlots.length > 0
           ? obj.availabilitySlots
           : defaultAvailabilitySlots,
+      avatar: obj.avatar || obj.image || "/images/default-avatar.png",
       institution: obj.institution || "AgriNova Specialist Network",
       consultationFee: obj.consultationFee || 500,
       rating: obj.rating || 4.9,

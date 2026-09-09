@@ -158,6 +158,12 @@ const updateSellerFulfillment =
         }
     );
 
+/**
+ * ADMIN DELIVERY FULFILLMENT
+ *
+ * Admin updates the delivery
+ * status for a specific seller.
+ */
 const updateAdminFulfillment =
     catchAsync(
         async (
@@ -185,6 +191,7 @@ const updateAdminFulfillment =
             });
         }
     );
+
 const getAllOrdersForAdmin =
     catchAsync(
         async (
@@ -239,8 +246,9 @@ export const OrderController = {
 
     updateSellerFulfillment,
 
+    updateAdminFulfillment,
+
     getAllOrdersForAdmin,
 
     updateOrderStatusByAdmin,
 };
-

@@ -10,6 +10,11 @@ import { ConsultationRoutes } from "../app/modules/consultation/consultation.rou
 import { ExpertRoutes } from "../app/modules/expert/expert.route";
 import { SupplyChainRoutes } from "../modules/supply-chain/supplyRequest.route";
 import { OrderRoutes } from "../modules/order/order.route";
+import { PaymentRoutes } from "../modules/payment/payment.route";
+
+
+
+
 
 const router = Router();
 

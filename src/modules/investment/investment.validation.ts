@@ -1,54 +1,296 @@
 import { z } from "zod";
 
-export const createInvestmentProjectSchema = z.object({
-  projectTitle: z
-    .string()
-    .trim()
-    .min(3, "Project title is required"),
+import {
+  INVESTMENT_CATEGORIES,
+  INVESTMENT_STATUSES,
+} from "./investment.interface";
 
-  nidNumber: z
-    .string()
-    .trim()
-    .regex(
-      /^(\d{10}|\d{13}|\d{17})$/,
-      "NID number must be 10, 13 or 17 digits"
-    ),
+const categorySchema =
+  z.enum(
+    INVESTMENT_CATEGORIES
+  );
 
-  category: z
-    .string()
-    .trim()
-    .min(1, "Category is required"),
+const statusSchema =
+  z.enum(
+    INVESTMENT_STATUSES
+  );
 
-  requiredInvestment: z.coerce
-    .number()
-    .positive("Required investment must be greater than 0"),
+const urlSchema =
+  z.string().url().optional();
 
-  projectedProfit: z.coerce
-    .number()
-    .min(0, "Projected profit cannot be negative"),
+const createInvestmentProjectSchema =
+  z.object({
+    body: z.object({
+      projectName: z
+        .string()
+        .trim()
+        .min(
+          3,
+          "Project name must be at least 3 characters"
+        )
+        .max(150),
 
-  duration: z
-    .string()
-    .trim()
-    .min(1, "Duration is required"),
+      category:
+        categorySchema,
 
-  location: z
-    .string()
-    .trim()
-    .min(2, "Location is required"),
+      requiredInvestment:
+        z.number()
+        .positive(),
 
-  projectImage: z
-    .string()
-    .trim()
-    .min(1, "Project image is required"),
+      ownContribution:
+        z.number()
+        .min(0)
+        .optional(),
 
-  description: z
-    .string()
-    .trim()
-    .min(10, "Description must be at least 10 characters"),
+      duration:
+        z.string()
+        .trim()
+        .min(1)
+        .max(100),
 
-  supportingDocument: z
-    .string()
-    .trim()
-    .min(1, "Supporting document is required"),
-});
+      expectedReturn:
+        z.string()
+        .trim()
+        .min(1)
+        .max(100),
+
+      profitSharing:
+        z.string()
+        .trim()
+        .min(1)
+        .max(200),
+
+      estimatedRevenue:
+        z.number()
+        .min(0),
+
+      estimatedCost:
+        z.number()
+        .min(0),
+
+      estimatedProfit:
+        z.number()
+        .min(0),
+
+      division:
+        z.string()
+        .trim()
+        .min(1),
+
+      district:
+        z.string()
+        .trim()
+        .min(1),
+
+      upazila:
+        z.string()
+        .trim()
+        .min(1),
+
+      address:
+        z.string()
+        .trim()
+        .min(2)
+        .max(300),
+
+      description:
+        z.string()
+        .trim()
+        .min(20)
+        .max(5000),
+
+      projectImage:
+        urlSchema,
+
+      nidNumber:
+        z.string()
+        .trim()
+        .min(5)
+        .max(30),
+
+      nidFrontImage:
+        urlSchema,
+
+      supportingDocument:
+        urlSchema,
+    }),
+  });
+
+const updateInvestmentProjectSchema =
+  z.object({
+    body: z.object({
+      projectName:
+        z.string()
+        .trim()
+        .min(3)
+        .max(150)
+        .optional(),
+
+      category:
+        categorySchema.optional(),
+
+      requiredInvestment:
+        z.number()
+        .positive()
+        .optional(),
+
+      ownContribution:
+        z.number()
+        .min(0)
+        .optional(),
+
+      duration:
+        z.string()
+        .trim()
+        .min(1)
+        .max(100)
+        .optional(),
+
+      expectedReturn:
+        z.string()
+        .trim()
+        .min(1)
+        .max(100)
+        .optional(),
+
+      profitSharing:
+        z.string()
+        .trim()
+        .min(1)
+        .max(200)
+        .optional(),
+
+      estimatedRevenue:
+        z.number()
+        .min(0)
+        .optional(),
+
+      estimatedCost:
+        z.number()
+        .min(0)
+        .optional(),
+
+      estimatedProfit:
+        z.number()
+        .min(0)
+        .optional(),
+
+      division:
+        z.string()
+        .trim()
+        .min(1)
+        .optional(),
+
+      district:
+        z.string()
+        .trim()
+        .min(1)
+        .optional(),
+
+      upazila:
+        z.string()
+        .trim()
+        .min(1)
+        .optional(),
+
+      address:
+        z.string()
+        .trim()
+        .min(2)
+        .max(300)
+        .optional(),
+
+      description:
+        z.string()
+        .trim()
+        .min(20)
+        .max(5000)
+        .optional(),
+
+      projectImage:
+        urlSchema,
+
+      nidNumber:
+        z.string()
+        .trim()
+        .min(5)
+        .max(30)
+        .optional(),
+
+      nidFrontImage:
+        urlSchema,
+
+      supportingDocument:
+        urlSchema,
+    }),
+  });
+
+const reviewInvestmentProjectSchema =
+  z.object({
+    body:
+      z.object({
+        status:
+          statusSchema.refine(
+            (value) =>
+              value === "APPROVED" ||
+              value === "REJECTED",
+            {
+              message:
+                "Invalid review status",
+            }
+          ),
+
+        adminNote:
+          z.string()
+          .trim()
+          .max(2000)
+          .optional(),
+      })
+      .superRefine(
+        (data, ctx) => {
+          if (
+            data.status ===
+              "REJECTED" &&
+            !data.adminNote
+          ) {
+            ctx.addIssue({
+              code: "custom",
+              path: [
+                "adminNote",
+              ],
+              message:
+                "Rejection reason is required",
+            });
+          }
+        }
+      ),
+  });
+
+const getAdminInvestmentProjectsSchema =
+  z.object({
+    query:
+      z.object({
+        status:
+          statusSchema.optional(),
+
+        category:
+          categorySchema.optional(),
+
+        search:
+          z.string().optional(),
+
+        page:
+          z.string().optional(),
+
+        limit:
+          z.string().optional(),
+      })
+      .optional(),
+  });
+
+export const InvestmentValidation = {
+  createInvestmentProjectSchema,
+  updateInvestmentProjectSchema,
+  reviewInvestmentProjectSchema,
+  getAdminInvestmentProjectsSchema,
+};

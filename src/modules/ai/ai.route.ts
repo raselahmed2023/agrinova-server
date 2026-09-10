@@ -2,20 +2,19 @@ import { Router } from "express";
 import multer from "multer";
 
 import {
-  cropRecommendationSchema,
   farmingAssistantSchema,
+  smartFarmingRecommendationSchema,
   treatmentRecommendationSchema,
 } from "./ai.validation.js";
 
 import {
-  cropRecommendation,
   getFarmingAssistantResponse,
   getSmartFarmingRecommendation,
   detectDisease,
   treatmentRecommendation,
 } from "./ai.controller.js";
 
-import { validateRequest } from "../../middleware/validateRequest.js";
+import validateRequest from "../../middleware/validateRequest.js";
 
 const router = Router();
 
@@ -34,13 +33,8 @@ router.post(
 
 router.post(
   "/smart-farming-recommendation",
+  validateRequest(smartFarmingRecommendationSchema),
   getSmartFarmingRecommendation
-);
-
-router.post(
-  "/crop-recommendation",
-  validateRequest(cropRecommendationSchema),
-  cropRecommendation
 );
 
 router.post(

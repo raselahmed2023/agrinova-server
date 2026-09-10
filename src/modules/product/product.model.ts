@@ -161,6 +161,10 @@ const productSchema =
         type: [String],
         default: [],
       },
+      sellerId: {
+        type: String,
+        index: true,
+      },
 
       sellerName: {
         type: String,
@@ -246,6 +250,18 @@ const productSchema =
         type: Boolean,
         default: false,
         index: true,
+      },
+      approvedAt: {
+        type: Date,
+      },
+
+      approvedBy: {
+        type: String,
+      },
+
+      rejectionReason: {
+        type: String,
+        trim: true,
       },
     },
     {

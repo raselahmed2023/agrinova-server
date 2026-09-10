@@ -17,9 +17,21 @@ import {
 const router =
   Router();
 
-/*
-  FARMER
-*/
+
+
+router.get(
+  "/",
+  InvestmentController
+    .getApprovedInvestmentProjects
+);
+
+router.get(
+  "/:projectId",
+  InvestmentController
+    .getApprovedInvestmentProjectById
+);
+
+
 
 router.post(
   "/",
@@ -69,9 +81,7 @@ router.delete(
     .deleteMyInvestmentProject
 );
 
-/*
-  ADMIN
-*/
+
 
 router.get(
   "/admin/projects",

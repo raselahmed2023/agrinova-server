@@ -13,571 +13,684 @@ import {
   InvestmentProject,
 } from "./investment.model";
 
-
-// Generate unique investment project code
-
 const generateProjectCode =
   async (): Promise<string> => {
-
     for (let i = 0; i < 10; i++) {
-
       const projectCode =
         `INV-${randomBytes(4)
           .toString("hex")
           .toUpperCase()}`;
-
 
       const exists =
         await InvestmentProject.exists({
           projectCode,
         });
 
-
       if (!exists) {
         return projectCode;
       }
     }
 
-
     throw new AppError(
       500,
       "Failed to generate project code"
     );
-};
-
-
-
-// Create investment project
+  };
 
 const createInvestmentProjectInDB =
-async (
+  async (
+    payload: Omit<
+      IInvestmentProject,
+      | "projectCode"
+      | "farmerId"
+      | "farmerName"
+      | "farmerEmail"
+      | "status"
+      | "adminNote"
+      | "reviewedAt"
+      | "isDeleted"
+    >,
+    farmer: {
+      id: string;
+      name?: string;
+      email: string;
+    }
+  ) => {
+    const projectCode =
+      await generateProjectCode();
 
-  payload: Omit<
-    IInvestmentProject,
+    const project =
+      await InvestmentProject.create({
+        projectCode,
 
-    | "projectCode"
-    | "farmerId"
-    | "farmerName"
-    | "farmerEmail"
-    | "status"
-    | "adminNote"
-    | "reviewedAt"
-    | "isDeleted"
-  >,
+        farmerId: farmer.id,
 
+        farmerName:
+          farmer.name || "",
 
-  farmer:{
-    id:string;
-    name?:string;
-    email:string;
-  }
+        farmerEmail:
+          farmer.email
+            .toLowerCase()
+            .trim(),
 
-)=>{
+        projectName:
+          payload.projectName,
 
+        category:
+          payload.category,
 
-  const projectCode =
-    await generateProjectCode();
+        requiredInvestment:
+          payload.requiredInvestment,
 
-  const project =
-    await InvestmentProject.create({
+        ownContribution:
+          payload.ownContribution || 0,
 
-      projectCode,
+        duration:
+          payload.duration,
 
-      farmerId:
-        farmer.id,
+        expectedReturn:
+          payload.expectedReturn,
 
-      farmerName:
-        farmer.name || "",
+        profitSharing:
+          payload.profitSharing,
 
-      farmerEmail:
-        farmer.email
-          .toLowerCase()
-          .trim(),
+        estimatedRevenue:
+          payload.estimatedRevenue,
 
-      projectName:
-        payload.projectName,
-      category:
-        payload.category,
-      requiredInvestment:
-        payload.requiredInvestment,
+        estimatedCost:
+          payload.estimatedCost,
 
-      ownContribution:
-        payload.ownContribution || 0,
+        estimatedProfit:
+          payload.estimatedProfit,
 
-      duration:
-        payload.duration,
+        division:
+          payload.division,
 
-      expectedReturn:
-        payload.expectedReturn,
-      profitSharing:
-        payload.profitSharing,
-      estimatedRevenue:
-        payload.estimatedRevenue,
-      estimatedCost:
-        payload.estimatedCost,
-      estimatedProfit:
-        payload.estimatedProfit,
-      division:
-        payload.division,
-      district:
-        payload.district,
-      upazila:
-        payload.upazila,
-      address:
-        payload.address,
+        district:
+          payload.district,
 
-      description:
-        payload.description,
+        upazila:
+          payload.upazila,
 
-      nidNumber:
-        payload.nidNumber,
+        address:
+          payload.address,
 
-      nidFrontImage:
-        payload.nidFrontImage,
+        description:
+          payload.description,
 
-      status:
-        "PENDING_REVIEW",
+        projectImage:
+          payload.projectImage,
 
-      adminNote:
-        "",
-      isDeleted:
-        false,
+        nidNumber:
+          payload.nidNumber,
 
-    });
+        nidFrontImage:
+          payload.nidFrontImage,
 
+        supportingDocument:
+          payload.supportingDocument,
 
+        status:
+          "PENDING_REVIEW",
 
-  return project;
+        adminNote: "",
 
-};
+        isDeleted: false,
+      });
 
-
-// Farmer own projects
+    return project;
+  };
 
 const getMyInvestmentProjectsFromDB =
-async (
+  async (
+    farmerId: string
+  ) => {
+    return InvestmentProject.find({
+      farmerId,
 
-  farmerId:string
-)=>{
-
-
-  return InvestmentProject.find({
-
-    farmerId,
-
-    isDeleted:{
-      $ne:true,
-    },
-
-  })
-
-  .sort({
-    createdAt:-1,
-  })
-
-  .lean();
-
-};
-
-
-// Farmer single project
+      isDeleted: {
+        $ne: true,
+      },
+    })
+      .sort({
+        createdAt: -1,
+      })
+      .lean();
+  };
 
 const getMyInvestmentProjectByIdFromDB =
-async (
- projectId:string,
- farmerId:string
-)=>{
+  async (
+    projectId: string,
+    farmerId: string
+  ) => {
+    if (!isValidObjectId(projectId)) {
+      throw new AppError(
+        400,
+        "Invalid investment project id"
+      );
+    }
 
+    const project =
+      await InvestmentProject.findOne({
+        _id: projectId,
+        farmerId,
 
- if(!isValidObjectId(projectId)){
+        isDeleted: {
+          $ne: true,
+        },
+      }).lean();
 
-   throw new AppError(
-    400,
-    "Invalid investment project id"
-   );
+    if (!project) {
+      throw new AppError(
+        404,
+        "Investment project not found"
+      );
+    }
 
- }
-
-
- const project =
- await InvestmentProject.findOne({
-
-  _id:projectId,
-
-  farmerId,
-
-  isDeleted:{
-    $ne:true,
-  }
-
- });
-
-
- if(!project){
-
-   throw new AppError(
-    404,
-    "Investment project not found"
-   );
-
- }
- return project;
-
-};
-
-// Farmer update
+    return project;
+  };
 
 const updateMyInvestmentProjectInDB =
-async (
+  async (
+    projectId: string,
+    farmerId: string,
+    payload: Partial<IInvestmentProject>
+  ) => {
+    if (!isValidObjectId(projectId)) {
+      throw new AppError(
+        400,
+        "Invalid investment project id"
+      );
+    }
 
- projectId:string,
+    const project =
+      await InvestmentProject.findOne({
+        _id: projectId,
+        farmerId,
 
- farmerId:string,
+        isDeleted: {
+          $ne: true,
+        },
+      });
 
- payload:Partial<IInvestmentProject>
+    if (!project) {
+      throw new AppError(
+        404,
+        "Investment project not found"
+      );
+    }
 
-)=>{
+    if (
+      project.status !==
+      "PENDING_REVIEW"
+    ) {
+      throw new AppError(
+        400,
+        "Only pending projects can be edited"
+      );
+    }
 
+    const allowedFields = [
+      "projectName",
+      "category",
+      "requiredInvestment",
+      "ownContribution",
+      "duration",
+      "expectedReturn",
+      "profitSharing",
+      "estimatedRevenue",
+      "estimatedCost",
+      "estimatedProfit",
+      "division",
+      "district",
+      "upazila",
+      "address",
+      "description",
+      "projectImage",
+      "nidNumber",
+      "nidFrontImage",
+      "supportingDocument",
+    ];
 
- if(!isValidObjectId(projectId)){
+    for (const field of allowedFields) {
+      if (
+        payload[field as keyof IInvestmentProject] !==
+        undefined
+      ) {
+        (
+          project as unknown as Record<
+            string,
+            unknown
+          >
+        )[field] =
+          payload[
+            field as keyof IInvestmentProject
+          ];
+      }
+    }
 
-  throw new AppError(
-    400,
-    "Invalid investment project id"
-  );
+    await project.save();
 
- }
-
-
- const project =
- await InvestmentProject.findOne({
-
-  _id:projectId,
-
-  farmerId,
-
-  isDeleted:{
-    $ne:true,
-  }
-
- });
-
-
- if(!project){
-  throw new AppError(
-   404,
-   "Investment project not found"
-  );
-
- }
-
- if(
-  project.status !==
-  "PENDING_REVIEW"
- ){
-
-  throw new AppError(
-   400,
-   "Only pending projects can be edited"
-  );
-
- }
-
- Object.assign(
-  project,
-  payload
- );
-
- await project.save();
- return project;
-
-};
-
-
-// Farmer delete/withdraw
+    return project;
+  };
 
 const deleteMyInvestmentProjectFromDB =
-async (
+  async (
+    projectId: string,
+    farmerId: string
+  ) => {
+    if (!isValidObjectId(projectId)) {
+      throw new AppError(
+        400,
+        "Invalid investment project id"
+      );
+    }
 
- projectId:string,
- farmerId:string
-)=>{
+    const project =
+      await InvestmentProject.findOne({
+        _id: projectId,
+        farmerId,
+        isDeleted: {
+          $ne: true,
+        },
+      });
 
- const project =
- await InvestmentProject.findOne({
+    if (!project) {
+      throw new AppError(
+        404,
+        "Investment project not found"
+      );
+    }
 
-  _id:projectId,
+    if (
+      project.status !==
+      "PENDING_REVIEW"
+    ) {
+      throw new AppError(
+        400,
+        "Only pending projects can be withdrawn"
+      );
+    }
 
-  farmerId,
+    project.isDeleted = true;
 
- });
+    await project.save();
 
+    return project;
+  };
 
- if(!project){
+/*
+|--------------------------------------------------------------------------
+| PUBLIC APPROVED PROJECTS
+|--------------------------------------------------------------------------
+*/
 
-  throw new AppError(
-   404,
-   "Investment project not found"
-  );
+const getApprovedInvestmentProjectsFromDB =
+  async (
+    query: IInvestmentQuery
+  ) => {
+    const filter: Record<
+      string,
+      unknown
+    > = {
+      status: "APPROVED",
 
- }
+      isDeleted: {
+        $ne: true,
+      },
+    };
 
- if(
-  project.status !==
-  "PENDING_REVIEW"
- ){
+    if (query.category) {
+      filter.category =
+        query.category;
+    }
 
-  throw new AppError(
-   400,
-   "Only pending projects can be withdrawn"
-  );
+    if (query.search) {
+      filter.$or = [
+        {
+          projectName: {
+            $regex:
+              query.search,
+            $options: "i",
+          },
+        },
+        {
+          farmerName: {
+            $regex:
+              query.search,
+            $options: "i",
+          },
+        },
+        {
+          district: {
+            $regex:
+              query.search,
+            $options: "i",
+          },
+        },
+      ];
+    }
 
- }
+    const page =
+      Math.max(
+        Number(query.page) || 1,
+        1
+      );
 
- project.isDeleted=true;
- await project.save();
- return project;
+    const limit =
+      Math.min(
+        Number(query.limit) || 12,
+        50
+      );
 
-};
+    const skip =
+      (page - 1) * limit;
 
-// Admin get all projects
+    const [
+      data,
+      total,
+    ] =
+      await Promise.all([
+        InvestmentProject.find(
+          filter
+        )
+          .select(
+            "-nidNumber -nidFrontImage -supportingDocument -farmerEmail -adminNote -reviewedAt"
+          )
+          .sort({
+            createdAt: -1,
+          })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+
+        InvestmentProject.countDocuments(
+          filter
+        ),
+      ]);
+
+    return {
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages:
+          Math.ceil(
+            total / limit
+          ),
+      },
+
+      data,
+    };
+  };
+
+const getApprovedInvestmentProjectByIdFromDB =
+  async (
+    projectId: string
+  ) => {
+    if (!isValidObjectId(projectId)) {
+      throw new AppError(
+        400,
+        "Invalid investment project id"
+      );
+    }
+
+    const project =
+      await InvestmentProject.findOne({
+        _id: projectId,
+
+        status: "APPROVED",
+
+        isDeleted: {
+          $ne: true,
+        },
+      })
+        .select(
+          "-nidNumber -nidFrontImage -supportingDocument -farmerEmail -adminNote -reviewedAt"
+        )
+        .lean();
+
+    if (!project) {
+      throw new AppError(
+        404,
+        "Investment project not found"
+      );
+    }
+
+    return project;
+  };
+
+/*
+|--------------------------------------------------------------------------
+| ADMIN
+|--------------------------------------------------------------------------
+*/
 
 const getAdminInvestmentProjectsFromDB =
-async (
+  async (
+    query: IInvestmentQuery
+  ) => {
+    const filter: Record<
+      string,
+      unknown
+    > = {
+      isDeleted: {
+        $ne: true,
+      },
+    };
 
- query:IInvestmentQuery
-
-)=>{
-
- const filter:any={
-
-  isDeleted:{
-   $ne:true,
-  }
-
- };
-
-
- if(query.status){
-
-  filter.status =
-   query.status;
-
- }
-
- if(query.search){
-
-  filter.$or=[
-
-   {
-    projectName:{
-     $regex:
-     query.search,
-     $options:"i",
+    if (query.status) {
+      filter.status =
+        query.status;
     }
-   },
 
-
-   {
-    farmerName:{
-     $regex:
-     query.search,
-     $options:"i",
+    if (query.category) {
+      filter.category =
+        query.category;
     }
-   },
 
-
-   {
-    district:{
-     $regex:
-     query.search,
-     $options:"i",
+    if (query.search) {
+      filter.$or = [
+        {
+          projectName: {
+            $regex:
+              query.search,
+            $options: "i",
+          },
+        },
+        {
+          farmerName: {
+            $regex:
+              query.search,
+            $options: "i",
+          },
+        },
+        {
+          district: {
+            $regex:
+              query.search,
+            $options: "i",
+          },
+        },
+      ];
     }
-   }
 
-  ];
+    const page =
+      Math.max(
+        Number(query.page) || 1,
+        1
+      );
 
- }
+    const limit =
+      Math.min(
+        Number(query.limit) || 20,
+        50
+      );
 
- const page =
- Math.max(
-  Number(query.page)||1,
-  1
- );
+    const skip =
+      (page - 1) * limit;
 
+    const [
+      data,
+      total,
+    ] =
+      await Promise.all([
+        InvestmentProject.find(
+          filter
+        )
+          .sort({
+            createdAt: -1,
+          })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
 
- const limit =
- Math.min(
-  Number(query.limit)||20,
-  50
- );
+        InvestmentProject.countDocuments(
+          filter
+        ),
+      ]);
 
- const skip =
- (page-1)*limit;
+    return {
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages:
+          Math.ceil(
+            total / limit
+          ),
+      },
 
- const [
-  data,
-  total
-
- ] =
- await Promise.all([
-
-
-  InvestmentProject.find(filter)
-
-  .sort({
-   createdAt:-1,
-  })
-
-  .skip(skip)
-
-  .limit(limit)
-
-  .lean(),
-
-
-
-  InvestmentProject.countDocuments(
-   filter
-  )
-
- ]);
-
-
- return {
-
-  meta:{
-
-   page,
-
-   limit,
-
-   total,
-
-   totalPages:
-   Math.ceil(total/limit)
-
-  },
-
-
-  data,
-
- };
-
-};
-
-// Admin single project
+      data,
+    };
+  };
 
 const getAdminInvestmentProjectByIdFromDB =
-async (
+  async (
+    projectId: string
+  ) => {
+    if (!isValidObjectId(projectId)) {
+      throw new AppError(
+        400,
+        "Invalid investment project id"
+      );
+    }
 
-  projectId:string
+    const project =
+      await InvestmentProject.findOne({
+        _id: projectId,
 
-)=>{
+        isDeleted: {
+          $ne: true,
+        },
+      }).lean();
 
+    if (!project) {
+      throw new AppError(
+        404,
+        "Investment project not found"
+      );
+    }
 
-  if(!isValidObjectId(projectId)){
-
-    throw new AppError(
-      400,
-      "Invalid investment project id"
-    );
-
-  }
-
-
-
-  const project =
-    await InvestmentProject.findOne({
-
-      _id: projectId,
-
-      isDeleted:{
-        $ne:true,
-      }
-
-    });
-
-
-
-  if(!project){
-
-    throw new AppError(
-      404,
-      "Investment project not found"
-    );
-
-  }
-
-
-
-  return project;
-
-};;
-
-// Admin approve reject
+    return project;
+  };
 
 const reviewInvestmentProjectInDB =
-async (
+  async (
+    projectId: string,
+    status: TInvestmentStatus,
+    adminNote?: string
+  ) => {
+    if (!isValidObjectId(projectId)) {
+      throw new AppError(
+        400,
+        "Invalid investment project id"
+      );
+    }
 
- projectId:string,
+    if (
+      status !== "APPROVED" &&
+      status !== "REJECTED"
+    ) {
+      throw new AppError(
+        400,
+        "Only APPROVED or REJECTED is allowed"
+      );
+    }
 
- status:TInvestmentStatus,
+    const project =
+      await InvestmentProject.findById(
+        projectId
+      );
 
- adminNote?:string
+    if (!project) {
+      throw new AppError(
+        404,
+        "Project not found"
+      );
+    }
 
-)=>{
+    if (
+      project.isDeleted
+    ) {
+      throw new AppError(
+        404,
+        "Project not found"
+      );
+    }
 
- const project =
- await InvestmentProject.findById(
-  projectId
- );
+    if (
+      project.status !==
+      "PENDING_REVIEW"
+    ) {
+      throw new AppError(
+        400,
+        "Project already reviewed"
+      );
+    }
 
- if(!project){
+    if (
+      status === "REJECTED" &&
+      !adminNote?.trim()
+    ) {
+      throw new AppError(
+        400,
+        "Rejection reason is required"
+      );
+    }
 
-  throw new AppError(
-   404,
-   "Project not found"
-  );
+    project.status =
+      status;
 
- }
+    project.adminNote =
+      adminNote?.trim() || "";
 
+    project.reviewedAt =
+      new Date();
 
- if(
-  project.status !==
-  "PENDING_REVIEW"
- ){
+    await project.save();
 
-  throw new AppError(
-   400,
-   "Project already reviewed"
-  );
-
- }
-
- project.status =
- status;
-
- project.adminNote =
- adminNote || "";
-
- project.reviewedAt =
- new Date();
- await project.save();
- return project;
-
-};
-
-
+    return project;
+  };
 
 export const InvestmentService = {
- createInvestmentProjectInDB,
- getMyInvestmentProjectsFromDB,
- getMyInvestmentProjectByIdFromDB,
- updateMyInvestmentProjectInDB,
- deleteMyInvestmentProjectFromDB,
- getAdminInvestmentProjectsFromDB,
- getAdminInvestmentProjectByIdFromDB,
- reviewInvestmentProjectInDB,
+  createInvestmentProjectInDB,
 
+  getMyInvestmentProjectsFromDB,
+
+  getMyInvestmentProjectByIdFromDB,
+
+  updateMyInvestmentProjectInDB,
+
+  deleteMyInvestmentProjectFromDB,
+
+  getApprovedInvestmentProjectsFromDB,
+
+  getApprovedInvestmentProjectByIdFromDB,
+
+  getAdminInvestmentProjectsFromDB,
+
+  getAdminInvestmentProjectByIdFromDB,
+
+  reviewInvestmentProjectInDB,
 };

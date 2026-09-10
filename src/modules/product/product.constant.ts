@@ -11,6 +11,7 @@ export const PRODUCT_CATEGORIES = [
 ] as const;
 
 export const PRODUCT_STATUSES = [
+  "pending",
   "available",
   "out_of_stock",
   "disabled",

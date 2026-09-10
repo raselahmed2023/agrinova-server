@@ -4,14 +4,17 @@ import { WeatherRoutes } from "../app/modules/weather/weather.route";
 import aiRouter from "../modules/ai/ai.route.js";
 import { ProductRoutes } from "../modules/product/product.route";
 import financeRouter from "../modules/finance/finance.route.js";
-import { PurchaseRequestRoutes } from "../modules/purchase-request/purchaseRequest.route";
 import investmentRouter from "../modules/investment/investment.route.js";
 import { AdminRoutes } from "../modules/admin/admin.route";
 import { ConsultationRoutes } from "../app/modules/consultation/consultation.route";
 import { ExpertRoutes } from "../app/modules/expert/expert.route";
-import {
-  SupplyChainRoutes,
-} from "../modules/supply-chain/supplyRequest.route";
+import { SupplyChainRoutes } from "../modules/supply-chain/supplyRequest.route";
+import { OrderRoutes } from "../modules/order/order.route";
+import { PaymentRoutes } from "../modules/payment/payment.route";
+
+
+
+
 
 const router = Router();
 
@@ -40,10 +43,6 @@ const moduleRoutes = [
     route: ProductRoutes,
   },
   {
-    path: "/purchase-requests",
-    route: PurchaseRequestRoutes,
-  },
-  {
     path: "/finance",
     route: financeRouter,
   },
@@ -65,7 +64,15 @@ const moduleRoutes = [
   },
   {
     path: "/supply-chain",
-  route: SupplyChainRoutes,
+    route: SupplyChainRoutes,
+  },
+  {
+    path: "/orders",
+    route: OrderRoutes,
+  },
+  {
+    path: "/payments",
+    route: PaymentRoutes,
 },
 ];
 

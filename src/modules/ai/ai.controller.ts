@@ -122,31 +122,7 @@ export const getSmartFarmingRecommendation = async (
   }
 };
 
-export const cropRecommendation = async (
-  req: Request,
-  res: Response
-) => {
-  try {
-    const result =
-      await AIService.cropRecommendation(req.body);
 
-    return res.status(200).json({
-      success: true,
-      message: "Crop recommendation generated successfully",
-      data: result,
-    });
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Crop recommendation failed";
-
-    return res.status(500).json({
-      success: false,
-      message,
-    });
-  }
-};
 
 export const treatmentRecommendation = async (
   req: Request,
@@ -177,7 +153,6 @@ export const treatmentRecommendation = async (
 
 export const AIController = {
   farmingAssistant: getFarmingAssistantResponse,
-  cropRecommendation,
   diseaseDetection: detectDisease,
   smartFarmingRecommendation:
     getSmartFarmingRecommendation,

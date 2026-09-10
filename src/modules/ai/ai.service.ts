@@ -2,13 +2,19 @@ import type {
   IAITextResponse,
   IDiseaseDetectionResult,
   IFarmingAssistantInput,
+  ITreatmentRecommendationInput,
+  ITreatmentRecommendationResult,
 } from "./ai.interface.js";
 
 import { Farm } from "../../app/modules/farm/farm.model.js";
 
 import { generateWithGroq } from "./providers/groq.provider.js";
 import { generateWithOpenRouter } from "./providers/openrouter.provider.js";
-import { detectDiseaseWithGemini } from "./providers/gemini.provider.js";
+
+import {
+  detectDiseaseWithGemini,
+  generateTreatmentRecommendationWithGemini,
+} from "./providers/gemini.provider.js";
 
 interface SmartFarmingInput {
   farmId: string;
@@ -20,7 +26,7 @@ interface SmartFarmingResponse {
   provider: "GROQ" | "OPENROUTER";
 }
 
-const cleanJsonResponse = (text: string) => {
+const cleanJsonResponse = (text: string): string => {
   return text
     .replace(/```json/gi, "")
     .replace(/```/g, "")
@@ -47,11 +53,10 @@ const generateTextWithFallback = async (
       groqError
     );
 
-    const answer =
-      await generateWithOpenRouter(
-        systemPrompt,
-        userPrompt
-      );
+    const answer = await generateWithOpenRouter(
+      systemPrompt,
+      userPrompt
+    );
 
     return {
       answer,
@@ -63,13 +68,8 @@ const generateTextWithFallback = async (
 const farmingAssistant = async (
   payload: IFarmingAssistantInput
 ): Promise<IAITextResponse> => {
-  if (
-    !payload.message ||
-    !payload.message.trim()
-  ) {
-    throw new Error(
-      "Message is required"
-    );
+  if (!payload.message || !payload.message.trim()) {
+    throw new Error("Message is required");
   }
 
   const systemPrompt = `
@@ -116,56 +116,43 @@ ${payload.context || "No additional context provided."}
   );
 };
 
-const smartFarmingRecommendation =
-  async (
-    payload: SmartFarmingInput
-  ): Promise<SmartFarmingResponse> => {
-    if (!payload.farmId) {
-      throw new Error(
-        "Farm ID is required"
-      );
-    }
+const smartFarmingRecommendation = async (
+  payload: SmartFarmingInput
+): Promise<SmartFarmingResponse> => {
+  if (!payload.farmId) {
+    throw new Error("Farm ID is required");
+  }
 
-    if (
-      !payload.problem ||
-      !payload.problem.trim()
-    ) {
-      throw new Error(
-        "Farming problem is required"
-      );
-    }
+  if (!payload.problem || !payload.problem.trim()) {
+    throw new Error("Farming problem is required");
+  }
 
-    const farm = await Farm.findById(
-      payload.farmId
-    ).lean();
+  const farm = await Farm.findById(
+    payload.farmId
+  ).lean();
 
-    if (!farm) {
-      throw new Error(
-        "Farm not found"
-      );
-    }
+  if (!farm) {
+    throw new Error("Farm not found");
+  }
 
-    if (
-      farm.status !== "Active"
-    ) {
-      throw new Error(
-        "Only active farms can use smart farming recommendation"
-      );
-    }
+  if (farm.status !== "Active") {
+    throw new Error(
+      "Only active farms can use smart farming recommendation"
+    );
+  }
 
-    const location = [
-      (farm as any).upazila,
-      farm.district,
-      farm.division,
-    ]
-      .filter(Boolean)
-      .join(", ");
+  const location = [
+    (farm as any).upazila,
+    farm.district,
+    farm.division,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
-    const farmType =
-      (farm as any).farmType ||
-      "Farm";
+  const farmType =
+    (farm as any).farmType || "Farm";
 
-    const systemPrompt = `
+  const systemPrompt = `
 You are AgriNova Smart Farming Recommendation Assistant.
 
 Your job is to analyze a farmer's real farm information and the farming problem they describe.
@@ -192,7 +179,7 @@ Rules:
 10. Do not return JSON or markdown code blocks.
 `;
 
-    const userPrompt = `
+  const userPrompt = `
 Farm Name:
 ${farm.name}
 
@@ -217,31 +204,27 @@ ${payload.problem.trim()}
 Provide a practical smart farming recommendation for this farm.
 `;
 
-    const response =
-      await generateTextWithFallback(
-        systemPrompt,
-        userPrompt
-      );
+  const response = await generateTextWithFallback(
+    systemPrompt,
+    userPrompt
+  );
 
-    return {
-      recommendation:
-        response.answer,
-      provider:
-        response.provider,
-    };
+  return {
+    recommendation: response.answer,
+    provider: response.provider,
   };
+};
 
 const diseaseDetection = async (
   imageBuffer: Buffer,
   mimeType: string,
   cropName?: string
 ): Promise<IDiseaseDetectionResult> => {
-  const response =
-    await detectDiseaseWithGemini(
-      imageBuffer,
-      mimeType,
-      cropName
-    );
+  const response = await detectDiseaseWithGemini(
+    imageBuffer,
+    mimeType,
+    cropName
+  );
 
   try {
     return JSON.parse(
@@ -254,8 +237,87 @@ const diseaseDetection = async (
   }
 };
 
+const treatmentRecommendation = async (
+  payload: ITreatmentRecommendationInput
+): Promise<ITreatmentRecommendationResult> => {
+  const response =
+    await generateTreatmentRecommendationWithGemini(
+      payload
+    );
+
+  try {
+    const parsed = JSON.parse(
+      cleanJsonResponse(response)
+    );
+
+    const today = new Date();
+
+    const followUpDays =
+      typeof parsed.followUpDays === "number" &&
+      !Number.isNaN(parsed.followUpDays)
+        ? parsed.followUpDays
+        : 7;
+
+    const futureDate = new Date(
+      today.getTime() +
+        followUpDays *
+          24 *
+          60 *
+          60 *
+          1000
+    );
+
+    const followUpDate =
+      parsed.followUpDate ||
+      futureDate.toISOString().split("T")[0];
+
+    return {
+      diagnosis:
+        parsed.diagnosis ||
+        `Clinical agronomic diagnosis for ${payload.cropType} (${payload.problemTitle}). Follow prescribed management plan.`,
+
+      prescriptions: Array.isArray(
+        parsed.prescriptions
+      )
+        ? parsed.prescriptions
+            .map((item: unknown) =>
+              String(item).trim()
+            )
+            .filter(Boolean)
+        : [],
+
+      treatmentSteps: Array.isArray(
+        parsed.treatmentSteps
+      )
+        ? parsed.treatmentSteps
+            .map((item: unknown) =>
+              String(item).trim()
+            )
+            .filter(Boolean)
+        : [],
+
+      followUpDays,
+
+      followUpDate,
+
+      additionalNotes:
+        parsed.additionalNotes ||
+        "Wear protective gear during chemical or biological spray application. Observe recommended pre-harvest intervals.",
+
+      treatmentMode:
+        payload.treatmentMode ||
+        "integrated",
+    };
+  } catch {
+    throw new Error(
+      "Gemini returned an invalid treatment recommendation response"
+    );
+  }
+};
+
 export const AIService = {
   farmingAssistant,
   smartFarmingRecommendation,
   diseaseDetection,
+  treatmentRecommendation,
 };

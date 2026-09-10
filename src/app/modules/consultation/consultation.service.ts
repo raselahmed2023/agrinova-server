@@ -681,11 +681,19 @@ const addRecommendationInDB = async (
     throw new AppError(403, "You are not assigned to this consultation.");
   }
 
-  // State Rule: ONGOING only
-  if (consultation.status !== "ONGOING" && consultation.status !== "COMPLETED") {
+  // State Rule: Can add recommendation in any active or completed state
+  const allowedStatuses = [
+    "PENDING",
+    "ACCEPTED",
+    "SCHEDULED",
+    "CONFIRMED",
+    "ONGOING",
+    "COMPLETED",
+  ];
+  if (!allowedStatuses.includes(consultation.status)) {
     throw new AppError(
       409,
-      `Cannot add recommendation to consultation with status '${consultation.status}'. Status must be ONGOING.`
+      `Cannot add recommendation to consultation with status '${consultation.status}'.`
     );
   }
 
@@ -701,6 +709,12 @@ const addRecommendationInDB = async (
     additionalNotes: payload.additionalNotes,
     createdAt: new Date(),
   };
+
+  // Mark completed so the farmer receives it immediately under completed prescriptions
+  if (consultation.status !== "COMPLETED") {
+    consultation.status = "COMPLETED";
+    consultation.completedAt = new Date();
+  }
 
   await consultation.save();
   return consultation;

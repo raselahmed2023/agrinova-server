@@ -5,6 +5,7 @@ import { ProductController } from "./controllers/product.controller";
 import { ConsultationController } from "./controllers/consultation.controller";
 import { AnalyticsController } from "./controllers/analytics.controller";
 
+
 export const AdminController = {
   ...UserController,
   ...ExpertController,
@@ -12,4 +13,5 @@ export const AdminController = {
   ...ProductController,
   ...ConsultationController,
   ...AnalyticsController,
+  
 };

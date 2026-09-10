@@ -1,52 +1,96 @@
-import OpenAI from "openai";
+const OPENROUTER_API_URL =
+  "https://openrouter.ai/api/v1/chat/completions";
 
-const getOpenRouterClient = () => {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-
-  if (!apiKey) {
-    throw new Error(
-      "OPENROUTER_API_KEY is not configured"
-    );
-  }
-
-  return new OpenAI({
-    apiKey,
-    baseURL: "https://openrouter.ai/api/v1",
-  });
-};
+const getOpenRouterKeys = () =>
+  [
+    process.env.OPENROUTER_API_KEY_1,
+    process.env.OPENROUTER_API_KEY_2,
+  ].filter(Boolean) as string[];
 
 export const generateWithOpenRouter = async (
   systemPrompt: string,
   userPrompt: string
 ): Promise<string> => {
-  const client = getOpenRouterClient();
+  const apiKeys =
+    getOpenRouterKeys();
 
-  const response = await client.chat.completions.create({
-    model: "~openai/gpt-latest",
-
-    messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      {
-        role: "user",
-        content: userPrompt,
-      },
-    ],
-
-    temperature: 0.4,
-    max_tokens: 2000,
-  });
-
-  const content =
-    response.choices[0]?.message?.content;
-
-  if (!content) {
+  if (apiKeys.length === 0) {
     throw new Error(
-      "OpenRouter returned an empty response"
+      "No OpenRouter API key is configured"
     );
   }
 
-  return content;
+  let lastError =
+    "OpenRouter request failed";
+
+  for (const apiKey of apiKeys) {
+    try {
+      const response = await fetch(
+        OPENROUTER_API_URL,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Authorization: `Bearer ${apiKey}`,
+            "HTTP-Referer":
+              process.env.APP_URL ||
+              "http://localhost:3000",
+            "X-Title":
+              "AgriNova",
+          },
+          body: JSON.stringify({
+            model:
+              "meta-llama/llama-3.3-70b-instruct",
+            messages: [
+              {
+                role: "system",
+                content: systemPrompt,
+              },
+              {
+                role: "user",
+                content: userPrompt,
+              },
+            ],
+            temperature: 0.4,
+            max_tokens: 900,
+          }),
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        lastError =
+          data?.error?.message ||
+          `OpenRouter request failed with status ${response.status}`;
+
+        continue;
+      }
+
+      const answer =
+        data?.choices?.[0]?.message
+          ?.content;
+
+      if (
+        !answer ||
+        !answer.trim()
+      ) {
+        lastError =
+          "OpenRouter returned an empty response";
+
+        continue;
+      }
+
+      return answer.trim();
+    } catch (error) {
+      lastError =
+        error instanceof Error
+          ? error.message
+          : "OpenRouter request failed";
+    }
+  }
+
+  throw new Error(lastError);
 };

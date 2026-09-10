@@ -1,27 +1,88 @@
 import { GoogleGenAI } from "@google/genai";
 
-const getGeminiClient = () => {
-  const apiKey = process.env.GEMINI_API_KEY;
+const GEMINI_DISEASE_MODEL =
+  process.env.GEMINI_DISEASE_MODEL ||
+  process.env.GEMINI_MODEL ||
+  "gemini-3.6-flash";
 
-  if (!apiKey) {
+const GEMINI_TREATMENT_MODEL =
+  process.env.GEMINI_TREATMENT_MODEL ||
+  process.env.GEMINI_MODEL ||
+  "gemini-3.6-flash";
+
+const getGeminiApiKeys = (): string[] => {
+  const keys = [
+    process.env.GEMINI_API_KEY_1,
+    process.env.GEMINI_API_KEY_2,
+    process.env.GEMINI_API_KEY_3,
+  ].filter(
+    (key): key is string =>
+      Boolean(key && key.trim())
+  );
+
+  if (keys.length === 0) {
     throw new Error(
-      "GEMINI_API_KEY is not configured"
+      "AI service is not configured properly."
     );
   }
 
+  return keys;
+};
+
+const createGeminiClient = (
+  apiKey: string
+) => {
   return new GoogleGenAI({
     apiKey,
   });
 };
 
-export const detectDiseaseWithGemini = async (
-  imageBuffer: Buffer,
-  mimeType: string,
-  cropName?: string
-): Promise<string> => {
-  const ai = getGeminiClient();
+const isRetryableGeminiError = (
+  error: unknown
+): boolean => {
+  const err = error as {
+    status?: number;
+    message?: string;
+  };
 
-  const prompt = `
+  const status = err?.status;
+
+  const message =
+    err?.message?.toLowerCase() || "";
+
+  return (
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    message.includes("429") ||
+    message.includes("500") ||
+    message.includes("502") ||
+    message.includes("503") ||
+    message.includes("504") ||
+    message.includes("quota") ||
+    message.includes("rate limit") ||
+    message.includes("unavailable") ||
+    message.includes("high demand") ||
+    message.includes("overloaded") ||
+    message.includes("temporarily unavailable") ||
+    message.includes("timeout")
+  );
+};
+
+const cleanJsonText = (
+  text: string
+): string => {
+  return text
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .trim();
+};
+
+const buildDiseasePrompt = (
+  cropName?: string
+) => `
 You are AgriNova's crop disease analysis assistant.
 
 Analyze the uploaded crop or leaf image carefully.
@@ -52,102 +113,284 @@ Rules:
 6. Give practical agricultural advice.
 7. Avoid recommending unsafe pesticide quantities.
 8. If professional diagnosis is advisable, mention consulting an agricultural expert.
+9. Keep the response concise and useful.
 `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.7-flash",
+const callGeminiDiseaseModel = async (
+  apiKey: string,
+  imageBuffer: Buffer,
+  mimeType: string,
+  cropName?: string
+): Promise<string> => {
+  const ai = createGeminiClient(apiKey);
 
-    contents: [
-      {
-        inlineData: {
-          mimeType,
-          data: imageBuffer.toString("base64"),
+  const response =
+    await ai.models.generateContent({
+      model: GEMINI_DISEASE_MODEL,
+
+      contents: [
+        {
+          inlineData: {
+            mimeType,
+            data: imageBuffer.toString(
+              "base64"
+            ),
+          },
         },
-      },
-      {
-        text: prompt,
-      },
-    ],
-  });
+        {
+          text: buildDiseasePrompt(
+            cropName
+          ),
+        },
+      ],
+    });
 
-  if (!response.text) {
+  const text = response?.text;
+
+  if (!text || !text.trim()) {
     throw new Error(
-      "Gemini returned an empty response"
+      "AI analysis could not generate a result."
     );
   }
 
-  return response.text;
+  return cleanJsonText(text);
 };
 
-export const generateTreatmentRecommendationWithGemini = async (input: {
+export const detectDiseaseWithGemini =
+  async (
+    imageBuffer: Buffer,
+    mimeType: string,
+    cropName?: string
+  ): Promise<string> => {
+    const keys = getGeminiApiKeys();
+
+    let lastError: unknown;
+
+    for (
+      let index = 0;
+      index < keys.length;
+      index++
+    ) {
+      const apiKey = keys[index];
+
+      try {
+        return await callGeminiDiseaseModel(
+          apiKey,
+          imageBuffer,
+          mimeType,
+          cropName
+        );
+      } catch (error) {
+        lastError = error;
+
+        console.error(
+          `Gemini disease detection attempt ${
+            index + 1
+          } failed:`,
+          error
+        );
+
+        const isLastKey =
+          index === keys.length - 1;
+
+        if (
+          !isRetryableGeminiError(error) ||
+          isLastKey
+        ) {
+          break;
+        }
+      }
+    }
+
+    console.error(
+      "Disease detection failed after Gemini fallback:",
+      lastError
+    );
+
+    throw new Error(
+      "AI analysis is temporarily unavailable. Please try again shortly."
+    );
+  };
+
+/* -------------------------------------------------------------------------- */
+/*                         Treatment Recommendation                            */
+/* -------------------------------------------------------------------------- */
+
+interface TreatmentRecommendationInput {
   cropType: string;
   problemTitle: string;
   problemDescription: string;
   urgency?: string;
   treatmentMode?: string;
   farmDetails?: string;
-}): Promise<string> => {
-  const ai = getGeminiClient();
+}
 
+const buildTreatmentPrompt = (
+  input: TreatmentRecommendationInput
+): string => {
   const modeInstruction =
     input.treatmentMode === "organic"
-      ? "Focus strictly on organic, biological, and eco-friendly cultural methods, botanical sprays, and bio-pesticides (e.g. Trichoderma, Neem extract, Bacillus thuringiensis)."
+      ? `
+Focus on organic, biological, and eco-friendly
+cultural methods such as sanitation, biological
+control, botanical methods, and approved
+bio-pesticides.
+`
       : input.treatmentMode === "chemical"
-      ? "Provide targeted, fast-acting conventional chemical treatments with approved active ingredients, exact safe dosages, and pre-harvest intervals."
-      : "Provide an Integrated Pest & Disease Management (IPM) approach combining sanitation/cultural methods, bio-agents, and precise, judicious chemical treatments.";
+      ? `
+Focus on appropriate conventional treatment
+options using approved active ingredients.
+Do not provide unsafe or unverified chemical
+dosages.
+`
+      : `
+Use an Integrated Pest and Disease Management
+(IPM) approach combining sanitation, cultural
+practices, biological control, monitoring, and
+appropriate approved treatment options.
+`;
 
-  const prompt = `
-You are AgriNova's Senior Agricultural Plant Pathology & Agronomy AI Specialist.
-An expert agronomist is issuing a formal treatment prescription for a registered farmer in Bangladesh.
+  return `
+You are AgriNova's agricultural treatment
+recommendation assistant.
 
-Crop: ${input.cropType}
-Reported Issue: ${input.problemTitle}
-Symptoms & Details: ${input.problemDescription}
-Urgency Level: ${input.urgency || "NORMAL"}
-Treatment Mode Strategy: ${input.treatmentMode || "integrated"}
-${input.farmDetails ? `Farm Details: ${input.farmDetails}` : ""}
+Analyze the farmer's reported crop problem.
 
-Strategy Instructions:
+Crop:
+${input.cropType}
+
+Problem:
+${input.problemTitle}
+
+Symptoms and Details:
+${input.problemDescription}
+
+Urgency:
+${input.urgency || "NORMAL"}
+
+Treatment Mode:
+${input.treatmentMode || "integrated"}
+
+${
+  input.farmDetails
+    ? `Farm Details:
+${input.farmDetails}`
+    : ""
+}
+
+Strategy:
 ${modeInstruction}
 
-Formulate a rigorous, practical, expert diagnosis and actionable treatment plan tailored to Bangladeshi agricultural conditions.
+Give practical agricultural guidance suitable
+for Bangladesh when relevant.
 
-Return ONLY a valid JSON object matching exactly this structure:
+Return ONLY valid JSON using exactly this structure:
+
 {
-  "diagnosis": "Precise agronomic diagnosis explaining the causal organism (pathogen/pest/deficiency), stage of progression, and key identifying symptom.",
-  "prescriptions": [
-    "Specific input with formulation and exact dilution (e.g., 'Mancozeb 75% WP @ 2.5g/L of water' or 'Cartap Hydrochloride 50 SP @ 1g/L')",
-    "Secondary input, surfactant, or bio-stimulant (e.g., 'Agricultural spreader/sticker @ 0.5ml/L to enhance leaf adherence')"
-  ],
-  "treatmentSteps": [
-    "1. Field Sanitation: Immediately remove and safely dispose of severely infected leaves/whorls outside the plot.",
-    "2. Application Timing: Spray during calm early morning or late afternoon hours covering both upper and lower leaf surfaces.",
-    "3. Water & Soil Management: Regulate irrigation to avoid stagnant water and reduce humidity around the crop canopy.",
-    "4. Nutritional Support: Apply balanced micronutrient foliar spray once initial symptoms subside to accelerate plant recovery."
-  ],
+  "diagnosis": "string",
+  "prescriptions": ["string"],
+  "treatmentSteps": ["string"],
   "followUpDays": 7,
-  "additionalNotes": "Safety advice: Wear protective gloves and mask during spray. Pre-harvest interval (PHI): 14 days. Avoid application if rain is forecasted within 4 hours."
+  "followUpDate": "YYYY-MM-DD",
+  "additionalNotes": "string"
 }
 
 Rules:
-1. Return ONLY valid JSON, do NOT wrap with markdown fences or explanations.
-2. Formulate 2 to 4 specific prescriptions with precise dosages.
-3. Formulate 3 to 5 clear, sequential action plan steps.
-4. followUpDays must be an integer between 5 and 21.
+
+1. Return ONLY valid JSON.
+2. Do not return markdown.
+3. Do not use code fences.
+4. Do not claim absolute certainty.
+5. Do not invent missing farm information.
+6. Provide 2 to 4 practical prescription or
+   management recommendations.
+7. Provide 3 to 5 sequential treatment steps.
+8. followUpDays must be an integer between 5 and 21.
+9. Avoid unsafe pesticide or chemical dosage
+   instructions.
+10. If professional diagnosis is necessary,
+    recommend consulting a qualified agricultural
+    expert.
+11. Mention relevant safety precautions.
 `;
+};
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.7-flash",
-    contents: [
-      {
-        text: prompt,
-      },
-    ],
-  });
+const callGeminiTreatmentModel = async (
+  apiKey: string,
+  input: TreatmentRecommendationInput
+): Promise<string> => {
+  const ai = createGeminiClient(apiKey);
 
-  if (!response.text) {
-    throw new Error("Gemini returned an empty response");
+  const response =
+    await ai.models.generateContent({
+      model: GEMINI_TREATMENT_MODEL,
+
+      contents: [
+        {
+          text: buildTreatmentPrompt(input),
+        },
+      ],
+    });
+
+  const text = response?.text;
+
+  if (!text || !text.trim()) {
+    throw new Error(
+      "Gemini returned an empty treatment recommendation."
+    );
   }
 
-  return response.text;
+  return cleanJsonText(text);
 };
+
+export const generateTreatmentRecommendationWithGemini =
+  async (
+    input: TreatmentRecommendationInput
+  ): Promise<string> => {
+    const keys = getGeminiApiKeys();
+
+    let lastError: unknown;
+
+    for (
+      let index = 0;
+      index < keys.length;
+      index++
+    ) {
+      const apiKey = keys[index];
+
+      try {
+        return await callGeminiTreatmentModel(
+          apiKey,
+          input
+        );
+      } catch (error) {
+        lastError = error;
+
+        console.error(
+          `Gemini treatment recommendation attempt ${
+            index + 1
+          } failed:`,
+          error
+        );
+
+        const isLastKey =
+          index === keys.length - 1;
+
+        if (
+          !isRetryableGeminiError(error) ||
+          isLastKey
+        ) {
+          break;
+        }
+      }
+    }
+
+    console.error(
+      "Treatment recommendation failed after Gemini fallback:",
+      lastError
+    );
+
+    throw new Error(
+      "AI treatment recommendation is temporarily unavailable. Please try again shortly."
+    );
+  };

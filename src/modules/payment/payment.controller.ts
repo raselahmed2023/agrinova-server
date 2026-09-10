@@ -1,161 +1,252 @@
-import {
-    Request,
-    Response,
-} from "express";
+import { Request, Response } from "express";
+import Stripe from "stripe";
 
-import catchAsync from "../../utils/catchAsync";
-import AppError from "../../utils/AppError";
-import sendResponse from "../../utils/sendResponse";
+import PaymentService from "./payment.service";
 
-import {
-    PaymentService,
-} from "./payment.service";
+const getWebhookSecret = () => {
+  const secret =
+    process.env.STRIPE_WEBHOOK_SECRET;
 
-const requireUser = (
-    req: Request
-) => {
-    if (!req.user) {
-        throw new AppError(
-            401,
-            "Authentication required"
-        );
-    }
+  if (!secret) {
+    throw new Error(
+      "STRIPE_WEBHOOK_SECRET is not configured"
+    );
+  }
 
-    return req.user;
+  return secret;
 };
 
-const createStripeCheckoutSession =
-    catchAsync(
-        async (
-            req: Request,
-            res: Response
-        ) => {
-            const user =
-                requireUser(req);
+const createCheckoutSession = async (
+  req: Request,
+  res: Response
+) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required.",
+    });
+  }
 
-            const result =
-                await PaymentService.createStripeCheckoutSession(
-                    String(
-                        req.body.orderId
-                    ),
-                    user.id,
-                    user.email
-                );
+  const orderId = req.body?.orderId;
 
-            sendResponse(res, {
-                statusCode: 200,
-                success: true,
-                message:
-                    "Stripe checkout session created successfully",
-                data: result,
-            });
-        }
+  if (
+    !orderId ||
+    typeof orderId !== "string"
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "orderId is required.",
+    });
+  }
+
+  const result =
+    await PaymentService.createStripeCheckoutSession(
+      {
+        id: req.user.id,
+        email: req.user.email,
+        name: req.user.name,
+      },
+      orderId
     );
 
-const getStripeCheckoutSession =
-    catchAsync(
-        async (
-            req: Request,
-            res: Response
-        ) => {
-            const user =
-                requireUser(req);
+  return res.status(200).json({
+    success: true,
+    message:
+      "Stripe checkout session created successfully.",
+    data: result,
+  });
+};
 
-            const result =
-                await PaymentService.getStripeCheckoutSession(
-                    String(
-                        req.params.sessionId
-                    ),
-                    user.id
-                );
+const getPaymentStatus = async (
+  req: Request,
+  res: Response
+) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required.",
+    });
+  }
 
-            sendResponse(res, {
-                statusCode: 200,
-                success: true,
-                message:
-                    "Stripe checkout session fetched successfully",
-                data: result,
-            });
-        }
+  const orderIdParam =
+    req.params.orderId;
+
+  const orderId = Array.isArray(
+    orderIdParam
+  )
+    ? orderIdParam[0]
+    : orderIdParam;
+
+  if (!orderId) {
+    return res.status(400).json({
+      success: false,
+      message: "Order ID is required.",
+    });
+  }
+
+  const result =
+    await PaymentService.getStripePaymentStatus(
+      req.user.id,
+      orderId
     );
 
-const stripeWebhook =
-    async (
-        req: Request,
-        res: Response
-    ) => {
-        const signature =
-            req.headers[
-                "stripe-signature"
-            ];
+  return res.status(200).json({
+    success: true,
+    message:
+      "Payment status retrieved successfully.",
+    data: result,
+  });
+};
+
+const handleWebhook = async (
+  req: Request,
+  res: Response
+) => {
+  const signature =
+    req.headers["stripe-signature"];
+
+  if (
+    !signature ||
+    Array.isArray(signature)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Missing Stripe signature.",
+    });
+  }
+
+  let event: Stripe.Event;
+
+  try {
+    const secretKey =
+      process.env.STRIPE_SECRET_KEY ||
+      process.env.STRIPE_SECRET;
+
+    if (!secretKey) {
+      throw new Error(
+        "STRIPE_SECRET_KEY is not configured"
+      );
+    }
+
+    const stripe =
+      new Stripe(secretKey);
+
+    event =
+      stripe.webhooks.constructEvent(
+        req.body,
+        signature,
+        getWebhookSecret()
+      );
+  } catch (error) {
+    console.error(
+      "Stripe webhook verification failed:",
+      error
+    );
+
+    return res.status(400).json({
+      success: false,
+      message:
+        "Invalid Stripe webhook signature.",
+    });
+  }
+
+  try {
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session =
+          event.data.object as Stripe.Checkout.Session;
+
+        const orderId =
+          session.metadata?.orderId;
 
         if (
-            typeof signature !==
-            "string"
+          orderId &&
+          session.payment_status === "paid"
         ) {
-            res.status(400).json({
-                success: false,
-                message:
-                    "Stripe signature is missing",
-            });
-
-            return;
+          await PaymentService.markOrderPaid(
+            orderId,
+            session.id
+          );
         }
 
-        if (
-            !Buffer.isBuffer(
-                req.body
-            )
-        ) {
-            res.status(400).json({
-                success: false,
-                message:
-                    "Stripe webhook requires raw request body",
-            });
+        break;
+      }
 
-            return;
+      case "checkout.session.async_payment_succeeded": {
+        const session =
+          event.data.object as Stripe.Checkout.Session;
+
+        const orderId =
+          session.metadata?.orderId;
+
+        if (orderId) {
+          await PaymentService.markOrderPaid(
+            orderId,
+            session.id
+          );
         }
 
-        try {
-            const result =
-                await PaymentService.handleStripeWebhook(
-                    req.body,
-                    signature
-                );
+        break;
+      }
 
-            res.status(200).json(
-                result
-            );
-        } catch (
-            error
-        ) {
-            if (
-                error instanceof
-                AppError
-            ) {
-                res.status(
-                    error.statusCode
-                ).json({
-                    success: false,
-                    message:
-                        error.message,
-                });
+      case "checkout.session.async_payment_failed": {
+        const session =
+          event.data.object as Stripe.Checkout.Session;
 
-                return;
-            }
+        const orderId =
+          session.metadata?.orderId;
 
-            res.status(500).json({
-                success: false,
-                message:
-                    "Stripe webhook processing failed",
-            });
+        if (orderId) {
+          await PaymentService.markOrderPaymentFailed(
+            orderId,
+            session.id
+          );
         }
-    };
 
-export const PaymentController = {
-    createStripeCheckoutSession,
+        break;
+      }
 
-    getStripeCheckoutSession,
+      case "payment_intent.payment_failed": {
+        const paymentIntent =
+          event.data.object as Stripe.PaymentIntent;
 
-    stripeWebhook,
+        const orderId =
+          paymentIntent.metadata?.orderId;
+
+        if (orderId) {
+          await PaymentService.markOrderPaymentFailed(
+            orderId,
+            paymentIntent.id
+          );
+        }
+
+        break;
+      }
+
+      default:
+        break;
+    }
+
+    return res.status(200).json({
+      received: true,
+    });
+  } catch (error) {
+    console.error(
+      "Stripe webhook processing failed:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Webhook processing failed.",
+    });
+  }
+};
+
+export default {
+  createCheckoutSession,
+  getPaymentStatus,
+  handleWebhook,
 };

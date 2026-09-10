@@ -1,13 +1,21 @@
-export interface ICreateStripeCheckoutSessionPayload {
-    orderId: string;
+export interface IStripeCheckoutCustomer {
+  id: string;
+  email: string;
+  name?: string;
 }
 
-export interface IStripeCheckoutSessionResponse {
-    sessionId: string;
-    checkoutUrl: string;
+export interface ICreateStripeCheckoutPayload {
+  orderId: string;
 }
 
-export interface IStripeWebhookResult {
-    received: boolean;
-    eventType?: string;
+export interface IStripeCheckoutResponse {
+  sessionId: string;
+  url: string | null;
+}
+
+export interface IStripePaymentStatusResponse {
+  orderId: string;
+  orderNumber: string;
+  paymentStatus: string;
+  paymentReference?: string;
 }

@@ -1,59 +1,27 @@
 import {
-    Router,
+  Router,
 } from "express";
 
 import authenticate from "../../middleware/authenticate";
-import validateRequest from "../../middleware/validateRequest";
 
 import {
-    PaymentController,
+  PaymentController,
 } from "./payment.controller";
 
-import {
-    PaymentValidation,
-} from "./payment.validation";
-
 const router =
-    Router();
+  Router();
 
-/**
- * Stripe webhook
- *
- * This route is intentionally
- * NOT authenticated.
- *
- * Stripe authenticates the
- * request using the webhook
- * signature.
- */
 router.post(
-    "/stripe/webhook",
-    PaymentController.stripeWebhook
+  "/stripe/checkout-session",
+  authenticate,
+  PaymentController.createCheckoutSession
 );
 
-/**
- * Create Stripe Checkout Session
- */
-router.post(
-    "/stripe/create-session",
-    authenticate,
-    validateRequest(
-        PaymentValidation
-            .createStripeCheckoutSessionValidationSchema
-    ),
-    PaymentController
-        .createStripeCheckoutSession
-);
-
-/**
- * Get Stripe Checkout Session
- */
 router.get(
-    "/stripe/session/:sessionId",
-    authenticate,
-    PaymentController
-        .getStripeCheckoutSession
+  "/stripe/status/:orderId",
+  authenticate,
+  PaymentController.getPaymentStatus
 );
 
 export const PaymentRoutes =
-    router;
+  router;

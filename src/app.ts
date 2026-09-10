@@ -4,6 +4,9 @@ import express from "express";
 import globalErrorHandler from "./middleware/globalErrorHandler";
 import notFound from "./middleware/notFound";
 import router from "./routes";
+import {
+    PaymentController,
+} from "./modules/payment/payment.controller";
 
 const app = express();
 
@@ -42,6 +45,13 @@ app.use(
     })
 );
 
+app.post(
+    "/api/v1/payments/webhook",
+    express.raw({
+        type: "application/json",
+    }),
+    PaymentController.handleWebhook
+);
 app.use(
     "/api/v1/payments/stripe/webhook",
     express.raw({

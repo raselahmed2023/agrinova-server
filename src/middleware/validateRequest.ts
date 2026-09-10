@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import type { ZodSchema } from "zod";
 
-const validateRequest =
+export const validateRequest =
   (schema: ZodSchema) =>
   async (
     req: Request,

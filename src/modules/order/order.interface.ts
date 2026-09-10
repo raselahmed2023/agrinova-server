@@ -114,6 +114,7 @@ export interface IOrder {
   paymentStatus: TPaymentStatus;
 
   paymentReference?: string;
+  stockRestored?: boolean;
 
   notes?: string;
 

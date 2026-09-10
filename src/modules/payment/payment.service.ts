@@ -10,6 +10,10 @@ import {
     IStripeCheckoutSessionResponse,
 } from "./payment.interface";
 
+import {
+    Product,
+} from "../product/product.model";
+
 const getStripe = () => {
     const secretKey =
         process.env.STRIPE_SECRET_KEY;
@@ -49,6 +53,92 @@ const getFrontendUrl = () => {
         ""
     );
 };
+const restoreOrderStock =
+    async (
+        orderId: string
+    ) => {
+        const order =
+            await Order.findById(
+                orderId
+            );
+
+        if (!order) {
+            return;
+        }
+
+        /**
+         * Never restore stock twice.
+         */
+        if (
+            order.stockRestored ===
+            true
+        ) {
+            return;
+        }
+
+        /**
+         * Only unpaid card orders
+         * can have their stock restored
+         * by Stripe failure/expiry.
+         */
+        if (
+            order.paymentMethod !==
+            "card"
+        ) {
+            return;
+        }
+
+        if (
+            order.paymentStatus ===
+            "paid"
+        ) {
+            return;
+        }
+
+        for (
+            const item of
+            order.items
+        ) {
+            const product =
+                await Product.findById(
+                    item.productId
+                );
+
+            if (!product) {
+                continue;
+            }
+
+            const currentQuantity =
+                Number(
+                    product.quantity
+                );
+
+            const restoredQuantity =
+                currentQuantity +
+                Number(
+                    item.quantity
+                );
+
+            product.quantity =
+                restoredQuantity;
+
+            if (
+                product.status ===
+                "out_of_stock" &&
+                restoredQuantity > 0
+            ) {
+                product.status =
+                    "available";
+            }
+
+            await product.save();
+        }
+
+        order.stockRestored =
+            true;
+
+        await order.save();
+    };
 
 const toStripeAmount = (
     amount: number
@@ -129,10 +219,10 @@ const createStripeCheckoutSession =
 
                             ...(item.image
                                 ? {
-                                      images: [
-                                          item.image,
-                                      ],
-                                  }
+                                    images: [
+                                        item.image,
+                                    ],
+                                }
                                 : {}),
                         },
 
@@ -224,7 +314,7 @@ const createStripeCheckoutSession =
                     expires_at:
                         Math.floor(
                             Date.now() /
-                                1000
+                            1000
                         ) +
                         30 * 60,
                 }
@@ -289,7 +379,7 @@ const handleStripeWebhook =
         }
 
         switch (
-            event.type
+        event.type
         ) {
             case "checkout.session.completed": {
                 const session =
@@ -322,8 +412,8 @@ const handleStripeWebhook =
                     order.paymentReference =
                         session.payment_intent
                             ? String(
-                                  session.payment_intent
-                              )
+                                session.payment_intent
+                            )
                             : session.id;
 
                     if (
@@ -369,6 +459,10 @@ const handleStripeWebhook =
                         "failed";
 
                     await order.save();
+
+                    await restoreOrderStock(
+                        orderId
+                    );
                 }
 
                 break;
@@ -443,6 +537,10 @@ const handleStripeWebhook =
                         "failed";
 
                     await order.save();
+
+                    await restoreOrderStock(
+                        orderId
+                    );
                 }
 
                 break;

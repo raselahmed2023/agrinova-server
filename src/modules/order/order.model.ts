@@ -286,6 +286,11 @@ const orderSchema =
         type: String,
       },
 
+      stockRestored: {
+        type: Boolean,
+        default: false,
+      },
+
       notes: {
         type: String,
         trim: true,

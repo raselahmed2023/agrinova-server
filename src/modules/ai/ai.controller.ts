@@ -122,6 +122,7 @@ export const getSmartFarmingRecommendation = async (
   }
 };
 
+
 export const treatmentRecommendation = async (
   req: Request,
   res: Response

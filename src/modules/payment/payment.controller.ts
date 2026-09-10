@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import Stripe from "stripe";
 
-import PaymentService from "./payment.service";
+import { PaymentService } from "./payment.service";
 
 const getWebhookSecret = () => {
   const secret =
@@ -245,7 +245,7 @@ const handleWebhook = async (
   }
 };
 
-export default {
+export const PaymentController = {
   createCheckoutSession,
   getPaymentStatus,
   handleWebhook,

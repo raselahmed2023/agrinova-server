@@ -28,6 +28,8 @@ const requireUser = (
   return req.user;
 };
 
+
+
 const createInvestmentProject =
   catchAsync(
     async (
@@ -42,14 +44,9 @@ const createInvestmentProject =
           .createInvestmentProjectInDB(
             req.body,
             {
-              id:
-                user.id,
-
-              name:
-                user.name,
-
-              email:
-                user.email,
+              id: user.id,
+              name: user.name,
+              email: user.email,
             }
           );
 
@@ -57,7 +54,7 @@ const createInvestmentProject =
         statusCode: 201,
         success: true,
         message:
-          "Investment request submitted for admin review",
+          "Investment project submitted for admin review",
         data: result,
       });
     }
@@ -99,8 +96,7 @@ const getMyInvestmentProjectById =
 
       const projectId =
         String(
-          req.params
-            .projectId
+          req.params.projectId
         );
 
       const result =
@@ -131,8 +127,7 @@ const updateMyInvestmentProject =
 
       const projectId =
         String(
-          req.params
-            .projectId
+          req.params.projectId
         );
 
       const result =
@@ -164,8 +159,7 @@ const deleteMyInvestmentProject =
 
       const projectId =
         String(
-          req.params
-            .projectId
+          req.params.projectId
         );
 
       const result =
@@ -179,11 +173,66 @@ const deleteMyInvestmentProject =
         statusCode: 200,
         success: true,
         message:
-          "Investment request withdrawn successfully",
+          "Investment project withdrawn successfully",
         data: result,
       });
     }
   );
+
+
+
+const getApprovedInvestmentProjects =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      const result =
+        await InvestmentService
+          .getApprovedInvestmentProjectsFromDB(
+            req.query
+          );
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          "Approved investment projects retrieved successfully",
+        meta:
+          result.meta,
+        data:
+          result.data,
+      });
+    }
+  );
+
+const getApprovedInvestmentProjectById =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      const projectId =
+        String(
+          req.params.projectId
+        );
+
+      const result =
+        await InvestmentService
+          .getApprovedInvestmentProjectByIdFromDB(
+            projectId
+          );
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+        message:
+          "Investment project retrieved successfully",
+        data: result,
+      });
+    }
+  );
+
 
 const getAdminInvestmentProjects =
   catchAsync(
@@ -218,8 +267,7 @@ const getAdminInvestmentProjectById =
     ) => {
       const projectId =
         String(
-          req.params
-            .projectId
+          req.params.projectId
         );
 
       const result =
@@ -246,20 +294,15 @@ const reviewInvestmentProject =
     ) => {
       const projectId =
         String(
-          req.params
-            .projectId
+          req.params.projectId
         );
 
       const result =
         await InvestmentService
           .reviewInvestmentProjectInDB(
             projectId,
-
-            req.body
-              .status as TInvestmentStatus,
-
-            req.body
-              .adminNote
+            req.body.status as TInvestmentStatus,
+            req.body.adminNote
           );
 
       sendResponse(res, {
@@ -275,15 +318,24 @@ const reviewInvestmentProject =
     }
   );
 
-export const InvestmentController =
-  {
-    createInvestmentProject,
-    getMyInvestmentProjects,
-    getMyInvestmentProjectById,
-    updateMyInvestmentProject,
-    deleteMyInvestmentProject,
+export const InvestmentController = {
+  createInvestmentProject,
 
-    getAdminInvestmentProjects,
-    getAdminInvestmentProjectById,
-    reviewInvestmentProject,
-  };
+  getMyInvestmentProjects,
+
+  getMyInvestmentProjectById,
+
+  updateMyInvestmentProject,
+
+  deleteMyInvestmentProject,
+
+  getApprovedInvestmentProjects,
+
+  getApprovedInvestmentProjectById,
+
+  getAdminInvestmentProjects,
+
+  getAdminInvestmentProjectById,
+
+  reviewInvestmentProject,
+};

@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-
 export const farmingAssistantSchema = z.object({
   body: z.object({
     message: z
@@ -23,7 +22,6 @@ export const farmingAssistantSchema = z.object({
   }),
 });
 
-
 export const smartFarmingRecommendationSchema = z.object({
   body: z.object({
     farmId: z
@@ -45,8 +43,46 @@ export const smartFarmingRecommendationSchema = z.object({
   }),
 });
 
+export const treatmentRecommendationSchema = z.object({
+  body: z.object({
+    cropType: z
+      .string()
+      .trim()
+      .min(1, "Crop type is required"),
+
+    problemTitle: z
+      .string()
+      .trim()
+      .min(1, "Problem title is required"),
+
+    problemDescription: z
+      .string()
+      .trim()
+      .min(
+        1,
+        "Problem description is required"
+      ),
+
+    urgency: z
+      .string()
+      .optional(),
+
+    treatmentMode: z
+      .enum([
+        "integrated",
+        "organic",
+        "chemical",
+      ])
+      .optional(),
+
+    farmDetails: z
+      .string()
+      .optional(),
+  }),
+});
 
 export const AIValidations = {
   farmingAssistantSchema,
   smartFarmingRecommendationSchema,
+  treatmentRecommendationSchema,
 };

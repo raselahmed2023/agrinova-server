@@ -1,4 +1,5 @@
 import { Router } from "express";
+
 import { FarmRoutes } from "../app/modules/farm/farm.route";
 import { WeatherRoutes } from "../app/modules/weather/weather.route";
 import aiRouter from "../modules/ai/ai.route.js";
@@ -9,6 +10,7 @@ import investmentRouter from "../modules/investment/investment.route.js";
 import { AdminRoutes } from "../modules/admin/admin.route";
 import { ConsultationRoutes } from "../app/modules/consultation/consultation.route";
 import { ExpertRoutes } from "../app/modules/expert/expert.route";
+import { BlogRoutes } from "../app/modules/blog/blog.route";
 
 const router = Router();
 
@@ -59,6 +61,10 @@ const moduleRoutes = [
   {
     path: "/admin",
     route: AdminRoutes,
+  },
+  {
+    path: "/blogs",
+    route: BlogRoutes,
   },
 ];
 

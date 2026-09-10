@@ -115,4 +115,31 @@ router.patch(
   ConsultationControllers.updateConsultationStatus
 );
 
+// Farmer / Expert / Admin update details & reschedule
+router.patch(
+  "/:consultationId/details",
+  authenticate,
+  ConsultationControllers.updateConsultationDetails
+);
+
+router.patch(
+  "/:consultationId/reschedule",
+  authenticate,
+  ConsultationControllers.updateConsultationDetails
+);
+
+router.patch(
+  "/:consultationId",
+  authenticate,
+  ConsultationControllers.updateConsultationDetails
+);
+
+// Delete upcoming consultation (expert / admin / farmer)
+router.delete(
+  "/:consultationId",
+  authenticate,
+  ConsultationControllers.deleteConsultation
+);
+
 export const ConsultationRoutes = router;
+

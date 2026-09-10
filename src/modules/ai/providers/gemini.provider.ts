@@ -5,6 +5,11 @@ const GEMINI_DISEASE_MODEL =
   process.env.GEMINI_MODEL ||
   "gemini-3.6-flash";
 
+const GEMINI_TREATMENT_MODEL =
+  process.env.GEMINI_TREATMENT_MODEL ||
+  process.env.GEMINI_MODEL ||
+  "gemini-3.6-flash";
+
 const getGeminiApiKeys = (): string[] => {
   const keys = [
     process.env.GEMINI_API_KEY_1,
@@ -117,13 +122,11 @@ const callGeminiDiseaseModel = async (
   mimeType: string,
   cropName?: string
 ): Promise<string> => {
-  const ai =
-    createGeminiClient(apiKey);
+  const ai = createGeminiClient(apiKey);
 
   const response =
     await ai.models.generateContent({
-      model:
-        GEMINI_DISEASE_MODEL,
+      model: GEMINI_DISEASE_MODEL,
 
       contents: [
         {
@@ -144,10 +147,7 @@ const callGeminiDiseaseModel = async (
 
   const text = response?.text;
 
-  if (
-    !text ||
-    !text.trim()
-  ) {
+  if (!text || !text.trim()) {
     throw new Error(
       "AI analysis could not generate a result."
     );
@@ -162,8 +162,7 @@ export const detectDiseaseWithGemini =
     mimeType: string,
     cropName?: string
   ): Promise<string> => {
-    const keys =
-      getGeminiApiKeys();
+    const keys = getGeminiApiKeys();
 
     let lastError: unknown;
 
@@ -172,8 +171,7 @@ export const detectDiseaseWithGemini =
       index < keys.length;
       index++
     ) {
-      const apiKey =
-        keys[index];
+      const apiKey = keys[index];
 
       try {
         return await callGeminiDiseaseModel(
@@ -193,13 +191,10 @@ export const detectDiseaseWithGemini =
         );
 
         const isLastKey =
-          index ===
-          keys.length - 1;
+          index === keys.length - 1;
 
         if (
-          !isRetryableGeminiError(
-            error
-          ) ||
+          !isRetryableGeminiError(error) ||
           isLastKey
         ) {
           break;
@@ -214,5 +209,188 @@ export const detectDiseaseWithGemini =
 
     throw new Error(
       "AI analysis is temporarily unavailable. Please try again shortly."
+    );
+  };
+
+/* -------------------------------------------------------------------------- */
+/*                         Treatment Recommendation                            */
+/* -------------------------------------------------------------------------- */
+
+interface TreatmentRecommendationInput {
+  cropType: string;
+  problemTitle: string;
+  problemDescription: string;
+  urgency?: string;
+  treatmentMode?: string;
+  farmDetails?: string;
+}
+
+const buildTreatmentPrompt = (
+  input: TreatmentRecommendationInput
+): string => {
+  const modeInstruction =
+    input.treatmentMode === "organic"
+      ? `
+Focus on organic, biological, and eco-friendly
+cultural methods such as sanitation, biological
+control, botanical methods, and approved
+bio-pesticides.
+`
+      : input.treatmentMode === "chemical"
+      ? `
+Focus on appropriate conventional treatment
+options using approved active ingredients.
+Do not provide unsafe or unverified chemical
+dosages.
+`
+      : `
+Use an Integrated Pest and Disease Management
+(IPM) approach combining sanitation, cultural
+practices, biological control, monitoring, and
+appropriate approved treatment options.
+`;
+
+  return `
+You are AgriNova's agricultural treatment
+recommendation assistant.
+
+Analyze the farmer's reported crop problem.
+
+Crop:
+${input.cropType}
+
+Problem:
+${input.problemTitle}
+
+Symptoms and Details:
+${input.problemDescription}
+
+Urgency:
+${input.urgency || "NORMAL"}
+
+Treatment Mode:
+${input.treatmentMode || "integrated"}
+
+${
+  input.farmDetails
+    ? `Farm Details:
+${input.farmDetails}`
+    : ""
+}
+
+Strategy:
+${modeInstruction}
+
+Give practical agricultural guidance suitable
+for Bangladesh when relevant.
+
+Return ONLY valid JSON using exactly this structure:
+
+{
+  "diagnosis": "string",
+  "prescriptions": ["string"],
+  "treatmentSteps": ["string"],
+  "followUpDays": 7,
+  "followUpDate": "YYYY-MM-DD",
+  "additionalNotes": "string"
+}
+
+Rules:
+
+1. Return ONLY valid JSON.
+2. Do not return markdown.
+3. Do not use code fences.
+4. Do not claim absolute certainty.
+5. Do not invent missing farm information.
+6. Provide 2 to 4 practical prescription or
+   management recommendations.
+7. Provide 3 to 5 sequential treatment steps.
+8. followUpDays must be an integer between 5 and 21.
+9. Avoid unsafe pesticide or chemical dosage
+   instructions.
+10. If professional diagnosis is necessary,
+    recommend consulting a qualified agricultural
+    expert.
+11. Mention relevant safety precautions.
+`;
+};
+
+const callGeminiTreatmentModel = async (
+  apiKey: string,
+  input: TreatmentRecommendationInput
+): Promise<string> => {
+  const ai = createGeminiClient(apiKey);
+
+  const response =
+    await ai.models.generateContent({
+      model: GEMINI_TREATMENT_MODEL,
+
+      contents: [
+        {
+          text: buildTreatmentPrompt(input),
+        },
+      ],
+    });
+
+  const text = response?.text;
+
+  if (!text || !text.trim()) {
+    throw new Error(
+      "Gemini returned an empty treatment recommendation."
+    );
+  }
+
+  return cleanJsonText(text);
+};
+
+export const generateTreatmentRecommendationWithGemini =
+  async (
+    input: TreatmentRecommendationInput
+  ): Promise<string> => {
+    const keys = getGeminiApiKeys();
+
+    let lastError: unknown;
+
+    for (
+      let index = 0;
+      index < keys.length;
+      index++
+    ) {
+      const apiKey = keys[index];
+
+      try {
+        return await callGeminiTreatmentModel(
+          apiKey,
+          input
+        );
+      } catch (error) {
+        lastError = error;
+
+        console.error(
+          `Gemini treatment recommendation attempt ${
+            index + 1
+          } failed:`,
+          error
+        );
+
+        const isLastKey =
+          index === keys.length - 1;
+
+        if (
+          !isRetryableGeminiError(error) ||
+          isLastKey
+        ) {
+          break;
+        }
+      }
+    }
+
+    console.error(
+      "Treatment recommendation failed after Gemini fallback:",
+      lastError
+    );
+
+    throw new Error(
+      "AI treatment recommendation is temporarily unavailable. Please try again shortly."
     );
   };

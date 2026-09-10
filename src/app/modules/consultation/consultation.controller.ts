@@ -255,6 +255,45 @@ const getExpertStats = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const updateConsultationDetails = catchAsync(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new AppError(401, "Authentication required");
+  }
+
+  const consultationId = String(req.params.consultationId);
+  const result = await ConsultationServices.updateConsultationDetailsInDB(
+    consultationId,
+    req.body,
+    req.user
+  );
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Consultation updated successfully",
+    data: result,
+  });
+});
+
+const deleteConsultation = catchAsync(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new AppError(401, "Authentication required");
+  }
+
+  const consultationId = String(req.params.consultationId);
+  const result = await ConsultationServices.deleteConsultationFromDB(
+    consultationId,
+    req.user
+  );
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Consultation deleted successfully",
+    data: result,
+  });
+});
+
 export const ConsultationControllers = {
   createConsultation,
   getAllConsultations,
@@ -268,4 +307,7 @@ export const ConsultationControllers = {
   completeConsultation,
   updateConsultationStatus,
   getExpertStats,
+  updateConsultationDetails,
+  deleteConsultation,
 };
+

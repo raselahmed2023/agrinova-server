@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+export const agentEggSchema = z.object({
+  body: z.object({
+    message: z.string().trim().min(2, "Message is required").max(1500, "Message is too long"),
+    context: z.string().trim().max(2500).optional(),
+  }),
+});
+
 
 export const farmingAssistantSchema = z.object({
   body: z.object({
@@ -23,7 +30,6 @@ export const farmingAssistantSchema = z.object({
   }),
 });
 
-
 export const smartFarmingRecommendationSchema = z.object({
   body: z.object({
     farmId: z
@@ -45,8 +51,47 @@ export const smartFarmingRecommendationSchema = z.object({
   }),
 });
 
+export const treatmentRecommendationSchema = z.object({
+  body: z.object({
+    cropType: z
+      .string()
+      .trim()
+      .min(1, "Crop type is required"),
+
+    problemTitle: z
+      .string()
+      .trim()
+      .min(1, "Problem title is required"),
+
+    problemDescription: z
+      .string()
+      .trim()
+      .min(
+        1,
+        "Problem description is required"
+      ),
+
+    urgency: z
+      .string()
+      .optional(),
+
+    treatmentMode: z
+      .enum([
+        "integrated",
+        "organic",
+        "chemical",
+      ])
+      .optional(),
+
+    farmDetails: z
+      .string()
+      .optional(),
+  }),
+});
 
 export const AIValidations = {
+  agentEggSchema,
   farmingAssistantSchema,
   smartFarmingRecommendationSchema,
+  treatmentRecommendationSchema,
 };

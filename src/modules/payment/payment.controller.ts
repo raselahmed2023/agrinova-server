@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import Stripe from "stripe";
 
 import { PaymentService } from "./payment.service";
+import { InvestmentService } from "../investment/investment.service";
 
 const getWebhookSecret = () => {
   const secret =
@@ -157,17 +158,22 @@ const handleWebhook = async (
         const session =
           event.data.object as Stripe.Checkout.Session;
 
-        const orderId =
-          session.metadata?.orderId;
+        const orderId = session.metadata?.orderId;
+        const investmentApplicationId = session.metadata?.investmentApplicationId;
 
-        if (
-          orderId &&
-          session.payment_status === "paid"
-        ) {
-          await PaymentService.markOrderPaid(
-            orderId,
-            session.id
+        if (investmentApplicationId && session.payment_status === "paid") {
+          await InvestmentService.confirmPaidApplication(
+            investmentApplicationId,
+            {
+              stripeSessionId: session.id,
+              stripePaymentIntentId:
+                typeof session.payment_intent === "string"
+                  ? session.payment_intent
+                  : undefined,
+            }
           );
+        } else if (orderId && session.payment_status === "paid") {
+          await PaymentService.markOrderPaid(orderId, session.id);
         }
 
         break;
@@ -177,14 +183,22 @@ const handleWebhook = async (
         const session =
           event.data.object as Stripe.Checkout.Session;
 
-        const orderId =
-          session.metadata?.orderId;
+        const orderId = session.metadata?.orderId;
+        const investmentApplicationId = session.metadata?.investmentApplicationId;
 
-        if (orderId) {
-          await PaymentService.markOrderPaid(
-            orderId,
-            session.id
+        if (investmentApplicationId) {
+          await InvestmentService.confirmPaidApplication(
+            investmentApplicationId,
+            {
+              stripeSessionId: session.id,
+              stripePaymentIntentId:
+                typeof session.payment_intent === "string"
+                  ? session.payment_intent
+                  : undefined,
+            }
           );
+        } else if (orderId) {
+          await PaymentService.markOrderPaid(orderId, session.id);
         }
 
         break;
@@ -194,14 +208,16 @@ const handleWebhook = async (
         const session =
           event.data.object as Stripe.Checkout.Session;
 
-        const orderId =
-          session.metadata?.orderId;
+        const orderId = session.metadata?.orderId;
+        const investmentApplicationId = session.metadata?.investmentApplicationId;
 
-        if (orderId) {
-          await PaymentService.markOrderPaymentFailed(
-            orderId,
+        if (investmentApplicationId) {
+          await InvestmentService.markInvestmentPaymentFailed(
+            investmentApplicationId,
             session.id
           );
+        } else if (orderId) {
+          await PaymentService.markOrderPaymentFailed(orderId, session.id);
         }
 
         break;
@@ -211,14 +227,16 @@ const handleWebhook = async (
         const paymentIntent =
           event.data.object as Stripe.PaymentIntent;
 
-        const orderId =
-          paymentIntent.metadata?.orderId;
+        const orderId = paymentIntent.metadata?.orderId;
+        const investmentApplicationId = paymentIntent.metadata?.investmentApplicationId;
 
-        if (orderId) {
-          await PaymentService.markOrderPaymentFailed(
-            orderId,
+        if (investmentApplicationId) {
+          await InvestmentService.markInvestmentPaymentFailed(
+            investmentApplicationId,
             paymentIntent.id
           );
+        } else if (orderId) {
+          await PaymentService.markOrderPaymentFailed(orderId, paymentIntent.id);
         }
 
         break;

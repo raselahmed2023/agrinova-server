@@ -6,6 +6,7 @@ export interface IAITextResponse {
 export interface IFarmingAssistantInput {
   message: string;
   context?: string;
+  farmId?: string;
 }
 
 export interface ISmartFarmingInput {
@@ -26,4 +27,23 @@ export interface IDiseaseDetectionResult {
   recommendations?: string[];
   prevention?: string[];
   warning?: string;
+}
+
+export interface ITreatmentRecommendationInput {
+  cropType: string;
+  problemTitle: string;
+  problemDescription: string;
+  urgency?: string;
+  treatmentMode?: "integrated" | "organic" | "chemical";
+  farmDetails?: string;
+}
+
+export interface ITreatmentRecommendationResult {
+  diagnosis: string;
+  prescriptions: string[];
+  treatmentSteps: string[];
+  followUpDays: number;
+  followUpDate: string;
+  additionalNotes: string;
+  treatmentMode: string;
 }

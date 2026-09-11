@@ -263,7 +263,24 @@ const getAllConsultationsFromDB = async (
     });
   }
 
-  if (queryParams.status && queryParams.status !== "ALL") {
+  if (queryParams.status === "ONGOING") {
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const now = new Date();
+    conditions.push({
+      $or: [
+        { status: "ONGOING", startedAt: { $gte: thirtyMinutesAgo } },
+        {
+          status: "ONGOING",
+          startedAt: { $exists: false },
+          createdAt: { $gte: thirtyMinutesAgo },
+        },
+        {
+          status: "SCHEDULED",
+          scheduledAt: { $lte: now, $gte: thirtyMinutesAgo },
+        },
+      ],
+    });
+  } else if (queryParams.status && queryParams.status !== "ALL") {
     conditions.push({ status: queryParams.status });
   }
 
@@ -312,7 +329,22 @@ const getExpertConsultationsFromDB = async (
 ) => {
   const filter: Record<string, unknown> = {};
 
-  if (queryParams.status && queryParams.status !== "ALL") {
+  if (queryParams.status === "ONGOING") {
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const now = new Date();
+    filter.$or = [
+      { status: "ONGOING", startedAt: { $gte: thirtyMinutesAgo } },
+      {
+        status: "ONGOING",
+        startedAt: { $exists: false },
+        createdAt: { $gte: thirtyMinutesAgo },
+      },
+      {
+        status: "SCHEDULED",
+        scheduledAt: { $lte: now, $gte: thirtyMinutesAgo },
+      },
+    ];
+  } else if (queryParams.status && queryParams.status !== "ALL") {
     filter.status = queryParams.status;
   }
 
@@ -599,8 +631,12 @@ const scheduleConsultationInDB = async (
   const generatedMeetingLink =
     payload.meetingLink || `https://meet.jit.si/${videoRoomId}`;
 
-  consultation.status = "SCHEDULED";
+  const isStartNow = scheduledAtDate.getTime() <= Date.now() + 60 * 1000;
+  consultation.status = isStartNow ? "ONGOING" : "SCHEDULED";
   consultation.scheduledAt = scheduledAtDate;
+  if (isStartNow) {
+    consultation.startedAt = new Date();
+  }
   consultation.scheduledDate = scheduledAtDate.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -1049,9 +1085,9 @@ const updateConsultationDetailsInDB = async (
     if (isNaN(consultation.scheduledAt.getTime())) {
       consultation.scheduledAt = new Date(newDate);
     }
-    if (consultation.status === "PENDING") {
-      consultation.status = "SCHEDULED";
-    }
+    consultation.status = "SCHEDULED";
+    consultation.startedAt = undefined;
+    consultation.completedAt = undefined;
   }
 
   if (payload.meetingLink) {

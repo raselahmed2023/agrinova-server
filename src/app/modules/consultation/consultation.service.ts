@@ -356,8 +356,19 @@ const getSingleConsultationFromDB = async (id: string, user: UserContext) => {
     throw new AppError(404, "Consultation not found");
   }
 
-  if (user.role === "FARMER" && consultation.farmerId !== user.id) {
-    throw new AppError(403, "You are not authorized to view this consultation");
+  if (user.role === "FARMER") {
+    const isOwner =
+      consultation.farmerId === user.id ||
+      (consultation.farmerEmail &&
+        consultation.farmerEmail.toLowerCase().trim() ===
+          user.email.toLowerCase().trim()) ||
+      consultation.farmer?.id === user.id ||
+      (consultation.farmer?.email &&
+        consultation.farmer.email.toLowerCase().trim() ===
+          user.email.toLowerCase().trim());
+    if (!isOwner) {
+      throw new AppError(403, "You are not authorized to view this consultation");
+    }
   }
 
   return consultation;
@@ -673,12 +684,22 @@ const addRecommendationInDB = async (
   }
 
   // Ownership Check
-  if (
-    consultation.expertId &&
-    consultation.expertId !== expertUser.id &&
-    expertUser.role !== "ADMIN"
-  ) {
+  const isAssignedExpert =
+    !consultation.expertId ||
+    consultation.expertId === expertUser.id ||
+    (consultation.expertEmail &&
+      consultation.expertEmail.toLowerCase().trim() ===
+        expertUser.email.toLowerCase().trim()) ||
+    expertUser.role === "ADMIN";
+
+  if (!isAssignedExpert) {
     throw new AppError(403, "You are not assigned to this consultation.");
+  }
+
+  if (!consultation.expertId) {
+    consultation.expertId = expertUser.id;
+    consultation.expertName = expertUser.name || "AgriNova Specialist";
+    consultation.expertEmail = expertUser.email.toLowerCase().trim();
   }
 
   // State Rule: Can add recommendation in any active or completed state
@@ -915,6 +936,20 @@ const updateConsultationDetailsInDB = async (
     throw new AppError(404, "Consultation not found");
   }
 
+  if (consultation.status === "COMPLETED") {
+    throw new AppError(
+      400,
+      "This consultation session has already been completed and its details or schedule cannot be modified."
+    );
+  }
+
+  if (consultation.status === "REJECTED" || consultation.status === "CANCELLED") {
+    throw new AppError(
+      400,
+      `Cannot modify a ${consultation.status.toLowerCase()} consultation.`
+    );
+  }
+
   // Authorization check: owner farmer, assigned expert, or admin
   const userRole = user.role?.toUpperCase();
   const isExpert = userRole === "EXPERT";
@@ -1014,7 +1049,7 @@ const updateConsultationDetailsInDB = async (
     if (isNaN(consultation.scheduledAt.getTime())) {
       consultation.scheduledAt = new Date(newDate);
     }
-    if (consultation.status === "PENDING" || consultation.status === "COMPLETED") {
+    if (consultation.status === "PENDING") {
       consultation.status = "SCHEDULED";
     }
   }

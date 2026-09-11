@@ -62,18 +62,27 @@ const updateStatusValidationSchema = z.object({
 });
 
 const recommendationValidationSchema = z.object({
-  body: z.object({
-    recommendation: z
-      .string({ message: "Recommendation is required" })
-      .trim()
-      .min(10, "Recommendation must be at least 10 characters")
-      .max(3000, "Recommendation cannot exceed 3000 characters"),
-    diagnosis: z.string().optional(),
-    prescriptions: z.array(z.string()).optional(),
-    treatmentSteps: z.array(z.string()).optional(),
-    followUpDate: z.string().optional(),
-    additionalNotes: z.string().optional(),
-  }),
+  body: z
+    .object({
+      consultationId: z.string().optional(),
+      recommendation: z.string().trim().max(5000).optional(),
+      diagnosis: z.string().trim().max(5000).optional(),
+      prescriptions: z.array(z.string()).optional(),
+      treatmentSteps: z.array(z.string()).optional(),
+      followUpDate: z.string().optional(),
+      additionalNotes: z.string().optional(),
+    })
+    .refine(
+      (data) =>
+        Boolean(
+          (data.recommendation && data.recommendation.trim().length > 0) ||
+            (data.diagnosis && data.diagnosis.trim().length > 0)
+        ),
+      {
+        message: "Diagnosis or recommendation text is required",
+        path: ["diagnosis"],
+      }
+    ),
 });
 
 export const ConsultationValidations = {

@@ -16,8 +16,11 @@ export const AnalyticsService = {
     const pendingExpertApprovals = await userCollection.countDocuments({ role: "EXPERT", status: "PENDING" });
     
     const totalFarms = await farmCollection.countDocuments().catch(() => 0);
-    // Fix: "available" এর বদলে "ACTIVE" করা হয়েছে
-    const activeListings = await productCollection.countDocuments({ status: "ACTIVE" }).catch(() => 0);
+    const activeListings = await productCollection.countDocuments({
+      status: "available",
+      isDeleted: { $ne: true },
+      approvedAt: { $exists: true, $ne: null },
+    }).catch(() => 0);
     const totalConsultations = await consultationCollection.countDocuments().catch(() => 0);
 
     const recentUsers = await userCollection.find({}).sort({ createdAt: -1 }).limit(5).project({ password: 0 }).toArray();
@@ -51,9 +54,35 @@ export const AnalyticsService = {
     const admins = await userCollection.countDocuments({ role: "ADMIN" });
 
     const totalFarms = await farmCollection.countDocuments().catch(() => 0);
-    // Fix: "available" এর বদলে "ACTIVE" করা হয়েছে
-    const activeProducts = await productCollection.countDocuments({ status: "ACTIVE" }).catch(() => 0);
-    const disabledProducts = await productCollection.countDocuments({ status: "DISABLED" }).catch(() => 0);
+    const [activeProducts, pendingProducts, outOfStockProducts, rejectedProducts, disabledProducts] =
+      await Promise.all([
+        productCollection.countDocuments({
+          status: "available",
+          isDeleted: { $ne: true },
+          approvedAt: { $exists: true, $ne: null },
+        }).catch(() => 0),
+        productCollection.countDocuments({
+          isDeleted: { $ne: true },
+          $or: [
+            { status: "pending" },
+            {
+              status: { $in: ["available", "out_of_stock"] },
+              approvedAt: { $exists: false },
+            },
+            {
+              status: { $in: ["available", "out_of_stock"] },
+              approvedAt: null,
+            },
+          ],
+        }).catch(() => 0),
+        productCollection.countDocuments({
+          status: "out_of_stock",
+          isDeleted: { $ne: true },
+          approvedAt: { $exists: true, $ne: null },
+        }).catch(() => 0),
+        productCollection.countDocuments({ status: "rejected", isDeleted: { $ne: true } }).catch(() => 0),
+        productCollection.countDocuments({ status: "disabled", isDeleted: { $ne: true } }).catch(() => 0),
+      ]);
 
     const pendingConsultations = await consultationCollection.countDocuments({ status: "PENDING" }).catch(() => 0);
     const acceptedConsultations = await consultationCollection.countDocuments({ status: "ACCEPTED" }).catch(() => 0);
@@ -67,7 +96,13 @@ export const AnalyticsService = {
     return {
       users: { farmers, experts, admins },
       farms: { total: totalFarms },
-      marketplace: { active: activeProducts, disabled: disabledProducts },
+      marketplace: {
+        active: activeProducts,
+        pending: pendingProducts,
+        outOfStock: outOfStockProducts,
+        rejected: rejectedProducts,
+        disabled: disabledProducts,
+      },
       consultations: {
         pending: pendingConsultations,
         accepted: acceptedConsultations,

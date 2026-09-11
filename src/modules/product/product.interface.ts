@@ -82,6 +82,7 @@ export interface IProductQueryParams {
   productionMethod?: string;
 
   location?: string;
+  district?: string;
 
   minPrice?: string;
   maxPrice?: string;

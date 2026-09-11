@@ -236,7 +236,7 @@ const productSchema =
         ],
 
         default:
-          "available",
+          "pending",
 
         index: true,
       },

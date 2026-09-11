@@ -105,6 +105,11 @@ const createOrderInDB = async (
             },
 
             status: "available",
+
+            approvedAt: {
+                $exists: true,
+                $ne: null,
+            },
         });
 
     if (
@@ -344,6 +349,11 @@ const createOrderInDB = async (
                                 status:
                                     "available",
 
+                                approvedAt: {
+                                    $exists: true,
+                                    $ne: null,
+                                },
+
                                 quantity: {
                                     $gte:
                                         cartItem.quantity,
@@ -506,6 +516,26 @@ const getMyOrderByIdFromDB =
         return order;
     };
 
+const toSellerOrderView = (
+    order: any,
+    sellerId: string,
+    sellerEmail: string
+) => {
+    const normalizedEmail = sellerEmail.trim().toLowerCase();
+    const source = typeof order?.toObject === "function"
+        ? order.toObject()
+        : order;
+
+    return {
+        ...source,
+        fulfillments: (source.fulfillments || []).filter(
+            (fulfillment: any) =>
+                fulfillment.sellerId === sellerId ||
+                fulfillment.sellerEmail === normalizedEmail
+        ),
+    };
+};
+
 const getSellerOrdersFromDB =
     async (
         sellerId: string,
@@ -534,19 +564,8 @@ const getSellerOrdersFromDB =
                 })
                 .lean();
 
-        return orders.map(
-            (order) => ({
-                ...order,
-
-                fulfillments:
-                    order.fulfillments.filter(
-                        (fulfillment) =>
-                            fulfillment.sellerId ===
-                            sellerId ||
-                            fulfillment.sellerEmail ===
-                            normalizedEmail
-                    ),
-            })
+        return orders.map((order) =>
+            toSellerOrderView(order, sellerId, normalizedEmail)
         );
     };
 
@@ -799,7 +818,11 @@ const updateSellerFulfillment =
 
         await order.save();
 
-        return order;
+        return toSellerOrderView(
+            order,
+            sellerId,
+            normalizedEmail
+        );
     };
 const updateAdminFulfillment =
     async (

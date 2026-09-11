@@ -6,7 +6,6 @@ import {
   BY_PRODUCT_USES,
   POULTRY_TYPES,
   PRODUCT_CATEGORIES,
-  PRODUCT_SELLER_STATUSES,
   PRODUCT_STATUSES,
   PRODUCTION_METHODS,
   TRANSACTION_TYPES,
@@ -20,11 +19,6 @@ const categorySchema =
 const productStatusSchema =
   z.enum(
     PRODUCT_STATUSES
-  );
-
-const sellerStatusSchema =
-  z.enum(
-    PRODUCT_SELLER_STATUSES
   );
 
 const transactionTypeSchema =
@@ -248,9 +242,6 @@ const createProductValidationSchema =
               .max(10)
               .optional(),
 
-          status:
-            sellerStatusSchema
-              .optional(),
         })
         .superRefine(
           (
@@ -356,6 +347,11 @@ const getProductsQueryValidationSchema =
               .string()
               .optional(),
 
+          district:
+            z
+              .string()
+              .optional(),
+
           minPrice:
             nonNegativeNumberString
               .optional(),
@@ -431,6 +427,11 @@ const getMyListingsQueryValidationSchema =
               .optional(),
 
           location:
+            z
+              .string()
+              .optional(),
+
+          district:
             z
               .string()
               .optional(),
@@ -594,9 +595,6 @@ const updateProductValidationSchema =
               .max(10)
               .optional(),
 
-          status:
-            sellerStatusSchema
-              .optional(),
         })
         .refine(
           (
@@ -623,3 +621,4 @@ export const ProductValidation =
 
     updateProductValidationSchema,
   };
+

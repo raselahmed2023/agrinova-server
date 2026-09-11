@@ -42,13 +42,49 @@ export const ProductService = {
       },
     };
 
+    const andConditions: Record<string, any>[] = [];
+
     if (
       typeof query.status ===
         "string" &&
       query.status
     ) {
-      filter.status =
-        query.status;
+      if (query.status === "pending") {
+        /*
+         * Backward compatibility: old Agrinova listings could be saved as
+         * available/out_of_stock without ever receiving approvedAt. Those
+         * listings are not truly approved, so expose them to admins as
+         * pending review instead of letting them disappear from moderation.
+         */
+        andConditions.push({
+          $or: [
+            { status: "pending" },
+            {
+              status: {
+                $in: ["available", "out_of_stock"],
+              },
+              approvedAt: { $exists: false },
+            },
+            {
+              status: {
+                $in: ["available", "out_of_stock"],
+              },
+              approvedAt: null,
+            },
+          ],
+        });
+      } else if (
+        query.status === "available" ||
+        query.status === "out_of_stock"
+      ) {
+        filter.status = query.status;
+        filter.approvedAt = {
+          $exists: true,
+          $ne: null,
+        };
+      } else {
+        filter.status = query.status;
+      }
     }
 
     if (
@@ -73,29 +109,36 @@ export const ProductService = {
             "\\$&"
           );
 
-      filter.$or = [
-        {
-          title: {
-            $regex: escaped,
-            $options: "i",
+      andConditions.push({
+        $or: [
+          {
+            title: {
+              $regex: escaped,
+              $options: "i",
+            },
           },
-        },
 
-        {
-          sellerName: {
-            $regex: escaped,
-            $options: "i",
+          {
+            sellerName: {
+              $regex: escaped,
+              $options: "i",
+            },
           },
-        },
 
-        {
-          district: {
-            $regex: escaped,
-            $options: "i",
+          {
+            district: {
+              $regex: escaped,
+              $options: "i",
+            },
           },
-        },
-      ];
+        ],
+      });
     }
+
+    if (andConditions.length) {
+      filter.$and = andConditions;
+    }
+
 
     const [
       data,
@@ -271,7 +314,13 @@ export const ProductService = {
      * Farmer can see it in My Listings.
      */
     product.status =
-      "disabled";
+      "rejected";
+
+    product.approvedAt =
+      undefined;
+
+    product.approvedBy =
+      undefined;
 
     product.rejectionReason =
       reason?.trim() ||
@@ -350,27 +399,14 @@ export const ProductService = {
       return null;
     }
 
-    if (
-      Number(product.quantity) <=
-      0
-    ) {
-      product.status =
-        "out_of_stock";
-    } else {
-      /**
-       * Restoring an admin-disabled
-       * product should require approval
-       * again rather than bypass moderation.
-       */
-      product.status =
-        "pending";
-
-      product.approvedAt =
-        undefined;
-
-      product.approvedBy =
-        undefined;
-    }
+    /*
+     * Restore never bypasses moderation. The farmer/admin must
+     * review the listing and approve it again before it becomes public.
+     */
+    product.status = "pending";
+    product.approvedAt = undefined;
+    product.approvedBy = undefined;
+    product.rejectionReason = undefined;
 
     await product.save();
 

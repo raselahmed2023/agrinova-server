@@ -1,121 +1,79 @@
-import {
-  Router,
-} from "express";
+import { Router } from "express";
 
 import authenticate from "../../middleware/authenticate";
 import authorize from "../../middleware/authorize";
 import validateRequest from "../../middleware/validateRequest";
 
-import {
-  ProductController,
-} from "./product.controller";
+import { ProductController } from "./product.controller";
+import { ProductValidation } from "./product.validation";
 
-import {
-  ProductValidation,
-} from "./product.validation";
+const router = Router();
 
-const router =
-  Router();
-
-/**
- * PUBLIC MARKETPLACE
- */
-
-/**
- * Browse products
- */
+/* PUBLIC */
 router.get(
   "/products",
-
   validateRequest(
-    ProductValidation
-      .getProductsQueryValidationSchema
+    ProductValidation.getProductsQueryValidationSchema
   ),
-
   ProductController.getProducts
 );
 
-/**
- * Single product details
- *
- * Keep this after /products/my-listings
- * so "my-listings" is not treated as productId.
- */
-router.get(
-  "/products/:productId",
-
-  ProductController.getSingleProduct
-);
-
-/**
- * FARMER / SELLER
- */
-
-/**
- * Create listing
- */
-router.post(
-  "/products",
-
-  authenticate,
-
-  authorize("FARMER"),
-
-  validateRequest(
-    ProductValidation
-      .createProductValidationSchema
-  ),
-
-  ProductController.createProduct
-);
-
-/**
- * Farmer's own listings
- */
+/* FARMER / SELLER - static routes MUST be before /products/:productId */
 router.get(
   "/my-listings",
   authenticate,
   authorize("FARMER"),
   validateRequest(
-    ProductValidation
-      .getMyListingsQueryValidationSchema
+    ProductValidation.getMyListingsQueryValidationSchema
   ),
-
   ProductController.getMyListings
 );
 
-/**
- * Backward-compatible URL
- */
+router.get(
+  "/my-listings/:productId",
+  authenticate,
+  authorize("FARMER"),
+  ProductController.getMyProductById
+);
+
+/* Backward-compatible URLs */
 router.get(
   "/products/my-listings",
   authenticate,
   authorize("FARMER"),
   validateRequest(
-    ProductValidation
-      .getMyListingsQueryValidationSchema
+    ProductValidation.getMyListingsQueryValidationSchema
   ),
-
   ProductController.getMyListings
 );
 
-/**
- * Update own listing
- */
+router.get(
+  "/products/my-listings/:productId",
+  authenticate,
+  authorize("FARMER"),
+  ProductController.getMyProductById
+);
+
+router.post(
+  "/products",
+  authenticate,
+  authorize("FARMER"),
+  validateRequest(
+    ProductValidation.createProductValidationSchema
+  ),
+  ProductController.createProduct
+);
+
 router.patch(
   "/products/:productId",
   authenticate,
   authorize("FARMER"),
   validateRequest(
-    ProductValidation
-      .updateProductValidationSchema
+    ProductValidation.updateProductValidationSchema
   ),
   ProductController.updateProduct
 );
 
-/**
- * Delete own listing
- */
 router.delete(
   "/products/:productId",
   authenticate,
@@ -123,5 +81,10 @@ router.delete(
   ProductController.deleteProduct
 );
 
-export const ProductRoutes =
-  router;
+/* Public single-product route comes last so it cannot shadow static routes. */
+router.get(
+  "/products/:productId",
+  ProductController.getSingleProduct
+);
+
+export const ProductRoutes = router;

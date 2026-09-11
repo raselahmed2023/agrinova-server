@@ -14,6 +14,7 @@ export const PRODUCT_STATUSES = [
   "pending",
   "available",
   "out_of_stock",
+  "rejected",
   "disabled",
 ] as const;
 

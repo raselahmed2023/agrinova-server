@@ -11,29 +11,10 @@ export const INVESTMENT_CATEGORIES = [
   "other",
 ] as const;
 
-export const INVESTMENT_STATUSES = [
-  "PENDING_REVIEW",
-  "APPROVED",
-  "REJECTED",
-] as const;
-
-export const FUNDING_STATUSES = [
-  "OPEN",
-  "FUNDED",
-  "CLOSED",
-] as const;
-
-export const INVESTMENT_APPLICATION_STATUSES = [
-  "PENDING_REVIEW",
-  "APPROVED",
-  "REJECTED",
-] as const;
-
-export const INVESTMENT_PAYMENT_METHODS = [
-  "BANK_TRANSFER",
-  "STRIPE",
-] as const;
-
+export const INVESTMENT_STATUSES = ["PENDING_REVIEW", "APPROVED", "REJECTED"] as const;
+export const FUNDING_STATUSES = ["OPEN", "FUNDED", "CLOSED"] as const;
+export const INVESTMENT_APPLICATION_STATUSES = ["PENDING_REVIEW", "APPROVED", "REJECTED"] as const;
+export const INVESTMENT_PAYMENT_METHODS = ["BANK_TRANSFER", "STRIPE"] as const;
 export const INVESTMENT_PAYMENT_STATUSES = [
   "NOT_STARTED",
   "AWAITING_PAYMENT",
@@ -43,18 +24,12 @@ export const INVESTMENT_PAYMENT_STATUSES = [
   "FAILED",
 ] as const;
 
-export type TInvestmentCategory =
-  (typeof INVESTMENT_CATEGORIES)[number];
-export type TInvestmentStatus =
-  (typeof INVESTMENT_STATUSES)[number];
-export type TFundingStatus =
-  (typeof FUNDING_STATUSES)[number];
-export type TInvestmentApplicationStatus =
-  (typeof INVESTMENT_APPLICATION_STATUSES)[number];
-export type TInvestmentPaymentMethod =
-  (typeof INVESTMENT_PAYMENT_METHODS)[number];
-export type TInvestmentPaymentStatus =
-  (typeof INVESTMENT_PAYMENT_STATUSES)[number];
+export type TInvestmentCategory = (typeof INVESTMENT_CATEGORIES)[number];
+export type TInvestmentStatus = (typeof INVESTMENT_STATUSES)[number];
+export type TFundingStatus = (typeof FUNDING_STATUSES)[number];
+export type TInvestmentApplicationStatus = (typeof INVESTMENT_APPLICATION_STATUSES)[number];
+export type TInvestmentPaymentMethod = (typeof INVESTMENT_PAYMENT_METHODS)[number];
+export type TInvestmentPaymentStatus = (typeof INVESTMENT_PAYMENT_STATUSES)[number];
 
 export interface IInvestmentProject {
   projectCode: string;
@@ -67,11 +42,8 @@ export interface IInvestmentProject {
   category: TInvestmentCategory;
   requiredInvestment: number;
   minimumInvestment: number;
-  ownContribution?: number;
   fundedAmount: number;
   durationMonths: number;
-  expectedReturnPercent: number;
-  investorSharePercent: number;
   division: string;
   district: string;
   upazila: string;
@@ -87,7 +59,10 @@ export interface IInvestmentProject {
   approvedAt?: Date;
   isDeleted?: boolean;
 
-  // Legacy fields kept optional so old database records continue to work.
+  // Legacy fields retained only so existing database records remain readable.
+  ownContribution?: number;
+  expectedReturnPercent?: number;
+  investorSharePercent?: number;
   duration?: string;
   expectedReturn?: string;
   profitSharing?: string;
@@ -113,6 +88,8 @@ export interface IInvestmentApplication {
   investorName?: string;
   investorEmail: string;
   amount: number;
+  /** Sensitive identity field. Never expose outside ADMIN responses. */
+  nidNumber: string;
   note?: string;
   paymentMethod: TInvestmentPaymentMethod;
   status: TInvestmentApplicationStatus;

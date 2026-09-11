@@ -23,11 +23,8 @@ const investmentSchema = new Schema<IInvestmentProject>(
     category: { type: String, enum: INVESTMENT_CATEGORIES, required: true },
     requiredInvestment: { type: Number, required: true, min: 1 },
     minimumInvestment: { type: Number, required: true, min: 1, default: 1000 },
-    ownContribution: { type: Number, default: 0, min: 0 },
     fundedAmount: { type: Number, default: 0, min: 0 },
     durationMonths: { type: Number, required: true, min: 1, max: 120, default: 6 },
-    expectedReturnPercent: { type: Number, required: true, min: 0, max: 100, default: 0 },
-    investorSharePercent: { type: Number, required: true, min: 0, max: 100, default: 0 },
     division: { type: String, required: true, trim: true },
     district: { type: String, required: true, trim: true, index: true },
     upazila: { type: String, required: true, trim: true },
@@ -43,7 +40,10 @@ const investmentSchema = new Schema<IInvestmentProject>(
     approvedAt: { type: Date },
     isDeleted: { type: Boolean, default: false, index: true },
 
-    // Legacy fields
+    // Legacy-only fields. New forms do not collect these.
+    ownContribution: { type: Number, min: 0 },
+    expectedReturnPercent: { type: Number, min: 0, max: 100 },
+    investorSharePercent: { type: Number, min: 0, max: 100 },
     duration: { type: String, trim: true },
     expectedReturn: { type: String, trim: true },
     profitSharing: { type: String, trim: true },
@@ -68,6 +68,7 @@ const investmentApplicationSchema = new Schema<IInvestmentApplication>(
     investorId: { type: String, required: true, index: true },
     investorName: { type: String, trim: true },
     investorEmail: { type: String, required: true, lowercase: true, trim: true },
+    nidNumber: { type: String, required: true, trim: true, select: false },
     amount: { type: Number, required: true, min: 1 },
     note: { type: String, trim: true, default: "" },
     paymentMethod: { type: String, enum: INVESTMENT_PAYMENT_METHODS, required: true },
@@ -89,13 +90,5 @@ const investmentApplicationSchema = new Schema<IInvestmentApplication>(
 
 investmentApplicationSchema.index({ projectId: 1, investorId: 1, createdAt: -1 });
 
-export const InvestmentProject = model<IInvestmentProject>(
-  "InvestmentProject",
-  investmentSchema
-);
-
-export const InvestmentApplication = model<IInvestmentApplication>(
-  "InvestmentApplication",
-  investmentApplicationSchema
-);
-
+export const InvestmentProject = model<IInvestmentProject>("InvestmentProject", investmentSchema);
+export const InvestmentApplication = model<IInvestmentApplication>("InvestmentApplication", investmentApplicationSchema);

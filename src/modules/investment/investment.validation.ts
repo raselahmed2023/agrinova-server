@@ -19,22 +19,20 @@ const uploadedFileUrl = z.string().trim().refine(
 );
 const optionalUrl = uploadedFileUrl.optional().or(z.literal(""));
 
+const projectBody = {
+  projectName: z.string().trim().min(3).max(150),
+  category: categorySchema,
+  requiredInvestment: z.number().positive(),
+  minimumInvestment: z.number().positive(),
+  durationMonths: z.number().int().min(1).max(120),
+  description: z.string().trim().min(20).max(3000),
+  useOfFunds: z.string().trim().min(10).max(1200),
+  projectImage: optionalUrl,
+  supportingDocument: optionalUrl,
+};
+
 const createInvestmentProjectSchema = z.object({
-  body: z.object({
-    farmId: z.string().trim().min(1, "Farm is required"),
-    projectName: z.string().trim().min(3).max(150),
-    category: categorySchema,
-    requiredInvestment: z.number().positive(),
-    minimumInvestment: z.number().positive(),
-    ownContribution: z.number().min(0).optional(),
-    durationMonths: z.number().int().min(1).max(120),
-    expectedReturnPercent: z.number().min(0).max(100),
-    investorSharePercent: z.number().min(0).max(100),
-    description: z.string().trim().min(20).max(5000),
-    useOfFunds: z.string().trim().min(10).max(2000),
-    projectImage: optionalUrl,
-    supportingDocument: optionalUrl,
-  }).superRefine((data, ctx) => {
+  body: z.object({ farmId: z.string().trim().min(1, "Farm is required"), ...projectBody }).superRefine((data, ctx) => {
     if (data.minimumInvestment > data.requiredInvestment) {
       ctx.addIssue({
         code: "custom",
@@ -42,29 +40,18 @@ const createInvestmentProjectSchema = z.object({
         message: "Minimum investment cannot exceed the funding goal",
       });
     }
-
-    if ((data.ownContribution || 0) > data.requiredInvestment) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["ownContribution"],
-        message: "Own contribution cannot exceed the funding goal",
-      });
-    }
   }),
 });
 
 const updateInvestmentProjectSchema = z.object({
   body: z.object({
-    projectName: z.string().trim().min(3).max(150).optional(),
+    projectName: projectBody.projectName.optional(),
     category: categorySchema.optional(),
-    requiredInvestment: z.number().positive().optional(),
-    minimumInvestment: z.number().positive().optional(),
-    ownContribution: z.number().min(0).optional(),
-    durationMonths: z.number().int().min(1).max(120).optional(),
-    expectedReturnPercent: z.number().min(0).max(100).optional(),
-    investorSharePercent: z.number().min(0).max(100).optional(),
-    description: z.string().trim().min(20).max(5000).optional(),
-    useOfFunds: z.string().trim().min(10).max(2000).optional(),
+    requiredInvestment: projectBody.requiredInvestment.optional(),
+    minimumInvestment: projectBody.minimumInvestment.optional(),
+    durationMonths: projectBody.durationMonths.optional(),
+    description: projectBody.description.optional(),
+    useOfFunds: projectBody.useOfFunds.optional(),
     projectImage: optionalUrl,
     supportingDocument: optionalUrl,
   }),
@@ -72,18 +59,13 @@ const updateInvestmentProjectSchema = z.object({
 
 const reviewInvestmentProjectSchema = z.object({
   body: z.object({
-    status: statusSchema.refine(
-      (value) => value === "APPROVED" || value === "REJECTED",
-      { message: "Invalid review status" }
-    ),
+    status: statusSchema.refine((value) => value === "APPROVED" || value === "REJECTED", {
+      message: "Invalid review status",
+    }),
     adminNote: z.string().trim().max(2000).optional(),
   }).superRefine((data, ctx) => {
     if (data.status === "REJECTED" && !data.adminNote?.trim()) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["adminNote"],
-        message: "Rejection reason is required",
-      });
+      ctx.addIssue({ code: "custom", path: ["adminNote"], message: "Rejection reason is required" });
     }
   }),
 });
@@ -91,25 +73,21 @@ const reviewInvestmentProjectSchema = z.object({
 const createInvestmentApplicationSchema = z.object({
   body: z.object({
     amount: z.number().positive(),
-    note: z.string().trim().max(1500).optional(),
+    nidNumber: z.string().trim().regex(/^\d{10,20}$/, "Enter a valid NID number using 10-20 digits"),
+    note: z.string().trim().max(800).optional(),
     paymentMethod: paymentMethodSchema,
   }),
 });
 
 const reviewInvestmentApplicationSchema = z.object({
   body: z.object({
-    status: applicationStatusSchema.refine(
-      (value) => value === "APPROVED" || value === "REJECTED",
-      { message: "Invalid review status" }
-    ),
+    status: applicationStatusSchema.refine((value) => value === "APPROVED" || value === "REJECTED", {
+      message: "Invalid review status",
+    }),
     adminNote: z.string().trim().max(2000).optional(),
   }).superRefine((data, ctx) => {
     if (data.status === "REJECTED" && !data.adminNote?.trim()) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["adminNote"],
-        message: "Rejection reason is required",
-      });
+      ctx.addIssue({ code: "custom", path: ["adminNote"], message: "Rejection reason is required" });
     }
   }),
 });
@@ -124,18 +102,13 @@ const submitBankPaymentSchema = z.object({
 
 const reviewBankPaymentSchema = z.object({
   body: z.object({
-    paymentStatus: paymentStatusSchema.refine(
-      (value) => value === "PAID" || value === "PAYMENT_REJECTED",
-      { message: "Invalid bank payment review status" }
-    ),
+    paymentStatus: paymentStatusSchema.refine((value) => value === "PAID" || value === "PAYMENT_REJECTED", {
+      message: "Invalid bank payment review status",
+    }),
     paymentAdminNote: z.string().trim().max(2000).optional(),
   }).superRefine((data, ctx) => {
     if (data.paymentStatus === "PAYMENT_REJECTED" && !data.paymentAdminNote?.trim()) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["paymentAdminNote"],
-        message: "Payment rejection reason is required",
-      });
+      ctx.addIssue({ code: "custom", path: ["paymentAdminNote"], message: "Payment rejection reason is required" });
     }
   }),
 });

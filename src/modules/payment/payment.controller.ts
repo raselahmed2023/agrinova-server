@@ -99,6 +99,62 @@ const getPaymentStatus = async (
   });
 };
 
+const verifyCheckoutSession = async (
+  req: Request,
+  res: Response
+) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: "Authentication required." });
+  }
+
+  const sessionId = Array.isArray(req.params.sessionId)
+    ? req.params.sessionId[0]
+    : req.params.sessionId;
+
+  if (!sessionId) {
+    return res.status(400).json({ success: false, message: "Stripe session ID is required." });
+  }
+
+  const result = await PaymentService.verifyStripeCheckoutSession(
+    req.user.id,
+    sessionId
+  );
+
+  return res.status(200).json({
+    success: true,
+    message: "Stripe checkout session verified.",
+    data: result,
+  });
+};
+
+const cancelCheckoutOrder = async (
+  req: Request,
+  res: Response
+) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: "Authentication required." });
+  }
+
+  const orderId = Array.isArray(req.params.orderId)
+    ? req.params.orderId[0]
+    : req.params.orderId;
+
+  if (!orderId) {
+    return res.status(400).json({ success: false, message: "Order ID is required." });
+  }
+
+  const result = await PaymentService.cancelPendingCardOrder(
+    req.user.id,
+    orderId
+  );
+
+  return res.status(200).json({
+    success: true,
+    message: "Checkout cancelled and reserved stock released.",
+    data: result,
+  });
+};
+
 const handleWebhook = async (
   req: Request,
   res: Response
@@ -204,6 +260,18 @@ const handleWebhook = async (
         break;
       }
 
+      case "checkout.session.expired": {
+        const session =
+          event.data.object as Stripe.Checkout.Session;
+
+        const orderId = session.metadata?.orderId;
+        if (orderId) {
+          await PaymentService.markOrderPaymentFailed(orderId, session.id);
+        }
+
+        break;
+      }
+
       case "checkout.session.async_payment_failed": {
         const session =
           event.data.object as Stripe.Checkout.Session;
@@ -224,21 +292,9 @@ const handleWebhook = async (
       }
 
       case "payment_intent.payment_failed": {
-        const paymentIntent =
-          event.data.object as Stripe.PaymentIntent;
-
-        const orderId = paymentIntent.metadata?.orderId;
-        const investmentApplicationId = paymentIntent.metadata?.investmentApplicationId;
-
-        if (investmentApplicationId) {
-          await InvestmentService.markInvestmentPaymentFailed(
-            investmentApplicationId,
-            paymentIntent.id
-          );
-        } else if (orderId) {
-          await PaymentService.markOrderPaymentFailed(orderId, paymentIntent.id);
-        }
-
+        // A failed PaymentIntent inside an open Checkout Session can still be retried.
+        // Do not release reserved inventory here; release only when Checkout expires,
+        // async payment fails, or the customer explicitly cancels.
         break;
       }
 
@@ -266,5 +322,7 @@ const handleWebhook = async (
 export const PaymentController = {
   createCheckoutSession,
   getPaymentStatus,
+  verifyCheckoutSession,
+  cancelCheckoutOrder,
   handleWebhook,
 };

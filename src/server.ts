@@ -26,14 +26,23 @@ const startServer = async () => {
 
 
 console.log("AI ENV CHECK", {
-  groq1: Boolean(process.env.GROQ_API_KEY_1),
-  groq2: Boolean(process.env.GROQ_API_KEY_2),
-  openrouter1: Boolean(
-    process.env.OPENROUTER_API_KEY_1
-  ),
-  openrouter2: Boolean(
-    process.env.OPENROUTER_API_KEY_2
-  ),
+  chatGroq: [
+    process.env.GROQ_API_KEY_1,
+    process.env.GROQ_API_KEY_2,
+  ].filter(Boolean).length,
+  chatOpenRouter: [
+    process.env.OPENROUTER_API_KEY_1,
+    process.env.OPENROUTER_API_KEY_2,
+  ].filter(Boolean).length,
+  agentEggGroq: Boolean(process.env.GROQ_API_KEY_3),
+  agentEggOpenRouter: Boolean(process.env.OPENROUTER_API_KEY_3),
+  otherAiGroq: Boolean(process.env.GROQ_API_KEY_4),
+  otherAiOpenRouter: Boolean(process.env.OPENROUTER_API_KEY_4),
+  geminiImageKeys: [
+    process.env.GEMINI_API_KEY_1,
+    process.env.GEMINI_API_KEY_2,
+    process.env.GEMINI_API_KEY_3,
+  ].filter(Boolean).length,
 });
 
 

@@ -356,6 +356,11 @@ const getProductsQueryValidationSchema =
               .string()
               .optional(),
 
+          district:
+            z
+              .string()
+              .optional(),
+
           minPrice:
             nonNegativeNumberString
               .optional(),
@@ -431,6 +436,11 @@ const getMyListingsQueryValidationSchema =
               .optional(),
 
           location:
+            z
+              .string()
+              .optional(),
+
+          district:
             z
               .string()
               .optional(),
@@ -623,3 +633,4 @@ export const ProductValidation =
 
     updateProductValidationSchema,
   };
+

@@ -1,6 +1,4 @@
-import {
-  isValidObjectId,
-} from "mongoose";
+import { isValidObjectId } from "mongoose";
 
 import AppError from "../../utils/AppError";
 
@@ -10,63 +8,36 @@ import {
   IProductQueryParams,
 } from "./product.interface";
 
-import {
-  Product,
-} from "./product.model";
+import { Product } from "./product.model";
 
-const escapeRegex = (
-  value: string
-) =>
-  value.replace(
-    /[.*+?^${}()|[\]\\]/g,
-    "\\$&"
-  );
+const escapeRegex = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const buildSortConditions = (
   query: IProductQueryParams
 ): Record<string, 1 | -1> => {
   switch (query.sort) {
     case "oldest":
-      return {
-        createdAt: 1,
-      };
-
+      return { createdAt: 1 };
     case "price_asc":
-      return {
-        price: 1,
-      };
-
+      return { price: 1 };
     case "price_desc":
-      return {
-        price: -1,
-      };
-
+      return { price: -1 };
     case "quantity_desc":
-      return {
-        quantity: -1,
-      };
-
+      return { quantity: -1 };
     case "newest":
-      return {
-        createdAt: -1,
-      };
-
+      return { createdAt: -1 };
     default:
       break;
   }
 
   if (query.sortBy) {
     return {
-      [query.sortBy]:
-        query.sortOrder === "asc"
-          ? 1
-          : -1,
+      [query.sortBy]: query.sortOrder === "asc" ? 1 : -1,
     };
   }
 
-  return {
-    createdAt: -1,
-  };
+  return { createdAt: -1 };
 };
 
 const applyCommonFilters = (
@@ -75,127 +46,89 @@ const applyCommonFilters = (
 ) => {
   if (query.search?.trim()) {
     const searchRegex = new RegExp(
-      escapeRegex(
-        query.search.trim()
-      ),
+      escapeRegex(query.search.trim()),
       "i"
     );
 
     queryObj.$or = [
-      {
-        title: searchRegex,
-      },
-      {
-        description: searchRegex,
-      },
-      {
-        location: searchRegex,
-      },
-      {
-        district: searchRegex,
-      },
+      { title: searchRegex },
+      { description: searchRegex },
+      { location: searchRegex },
+      { district: searchRegex },
+      { sellerName: searchRegex },
     ];
   }
 
-  if (
-    query.category &&
-    query.category !== "all"
-  ) {
-    queryObj.category =
-      query.category;
+  if (query.category && query.category !== "all") {
+    queryObj.category = query.category;
   }
 
   if (query.transactionType) {
-    queryObj.transactionType =
-      query.transactionType;
+    queryObj.transactionType = query.transactionType;
   }
 
   if (query.productionMethod) {
-    queryObj.productionMethod =
-      query.productionMethod;
+    queryObj.productionMethod = query.productionMethod;
   }
 
   if (query.location?.trim()) {
-    const locationRegex =
-      new RegExp(
-        escapeRegex(
-          query.location.trim()
-        ),
-        "i"
-      );
+    const locationRegex = new RegExp(
+      escapeRegex(query.location.trim()),
+      "i"
+    );
 
     queryObj.$and = [
       ...(queryObj.$and || []),
       {
         $or: [
-          {
-            location:
-              locationRegex,
-          },
-          {
-            division:
-              locationRegex,
-          },
-          {
-            district:
-              locationRegex,
-          },
-          {
-            upazila:
-              locationRegex,
-          },
+          { location: locationRegex },
+          { division: locationRegex },
+          { district: locationRegex },
+          { upazila: locationRegex },
         ],
       },
     ];
   }
 
-  if (
-    query.minPrice ||
-    query.maxPrice
-  ) {
+  if (query.district?.trim()) {
+    queryObj.district = new RegExp(
+      `^${escapeRegex(query.district.trim())}$`,
+      "i"
+    );
+  }
+
+  if (query.minPrice || query.maxPrice) {
     queryObj.price = {};
 
     if (query.minPrice) {
-      queryObj.price.$gte =
-        Number(
-          query.minPrice
-        );
+      queryObj.price.$gte = Number(query.minPrice);
     }
 
     if (query.maxPrice) {
-      queryObj.price.$lte =
-        Number(
-          query.maxPrice
-        );
+      queryObj.price.$lte = Number(query.maxPrice);
     }
   }
 };
 
+const sellerIdentityFilter = (
+  sellerId: string,
+  sellerEmail: string
+) => ({
+  $or: [
+    { sellerId },
+    { sellerEmail: sellerEmail.trim().toLowerCase() },
+  ],
+});
+
 /**
- * Create product
- *
- * IMPORTANT:
- * Farmer-created products are always
- * created as "pending".
- *
- * Farmer cannot approve their own product.
+ * Farmer listings publish immediately.
+ * Admin moderation happens after publishing only when a listing violates rules.
  */
-const createProductInDB = async (
-  payload: IProduct
-) => {
-  const transactionType =
-    payload.transactionType ??
-    "sale";
+const createProductInDB = async (payload: IProduct) => {
+  const transactionType = payload.transactionType ?? "sale";
+  const price = transactionType === "free" ? 0 : payload.price;
 
-  const price =
-    transactionType === "free"
-      ? 0
-      : payload.price;
-
-  if (
-    transactionType === "sale" &&
-    price <= 0
-  ) {
+  if (transactionType === "sale" && price <= 0) {
     throw new AppError(
       400,
       "Sale products must have a price greater than 0"
@@ -203,10 +136,8 @@ const createProductInDB = async (
   }
 
   if (
-    payload.category ===
-      "poultry" &&
-    !payload.poultryDetails
-      ?.poultryType
+    payload.category === "poultry" &&
+    !payload.poultryDetails?.poultryType
   ) {
     throw new AppError(
       400,
@@ -214,104 +145,61 @@ const createProductInDB = async (
     );
   }
 
+  const quantity = Math.max(Number(payload.quantity) || 0, 0);
+
   return Product.create({
     ...payload,
-
     transactionType,
-
-    productionMethod:
-      payload.productionMethod ??
-      "conventional",
-
+    productionMethod: payload.productionMethod ?? "conventional",
     price,
-
+    quantity,
     poultryDetails:
       payload.category === "poultry"
         ? payload.poultryDetails
         : undefined,
-
     byProductUses:
       payload.category === "by_products"
         ? payload.byProductUses ?? []
         : [],
-
-    /**
-     * NEVER trust seller-provided status.
-     *
-     * Every new listing waits for admin approval.
-     */
-    status: "pending",
-
+    status: quantity > 0 ? "available" : "out_of_stock",
     isDeleted: false,
+    approvedAt: undefined,
+    approvedBy: undefined,
+    rejectionReason: undefined,
+    moderationReason: undefined,
+    moderatedAt: undefined,
+    moderatedBy: undefined,
   });
 };
 
-/**
- * Public marketplace products.
- *
- * Only approved/available products
- * are visible to customers.
- */
-const getProductsFromDB = async (
-  query: IProductQueryParams
-) => {
-  const queryObj: Record<
-    string,
-    any
-  > = {
-    isDeleted: {
-      $ne: true,
-    },
-
+/** Public marketplace catalog. */
+const getProductsFromDB = async (query: IProductQueryParams) => {
+  const queryObj: Record<string, any> = {
+    isDeleted: { $ne: true },
     status:
-      query.status ===
-      "out_of_stock"
+      query.status === "out_of_stock"
         ? "out_of_stock"
         : "available",
   };
 
-  applyCommonFilters(
-    queryObj,
-    query
-  );
+  applyCommonFilters(queryObj, query);
 
-  const page = Math.max(
-    Number(query.page) || 1,
-    1
-  );
-
+  const page = Math.max(Number(query.page) || 1, 1);
   const limit = Math.min(
-    Math.max(
-      Number(query.limit) || 12,
-      1
-    ),
+    Math.max(Number(query.limit) || 12, 1),
     50
   );
+  const skip = (page - 1) * limit;
+  const sortConditions = buildSortConditions(query);
 
-  const skip =
-    (page - 1) * limit;
-
-  const sortConditions =
-    buildSortConditions(
-      query
-    );
-
-  const [
-    products,
-    total,
-  ] = await Promise.all([
+  const [products, total] = await Promise.all([
     Product.find(queryObj)
-      .select(
-        "-sellerEmail -sellerContact"
-      )
+      .select("-sellerEmail -sellerContact -moderationReason -moderatedBy")
       .sort(sortConditions)
       .skip(skip)
       .limit(limit)
       .lean(),
-
-    Product.countDocuments(
-      queryObj
-    ),
+    Product.countDocuments(queryObj),
   ]);
 
   return {
@@ -319,371 +207,242 @@ const getProductsFromDB = async (
       page,
       limit,
       total,
-      totalPages: Math.max(
-        Math.ceil(
-          total / limit
-        ),
-        1
-      ),
+      totalPages: Math.max(Math.ceil(total / limit), 1),
     },
-
     data: products,
   };
 };
 
-/**
- * Public single product.
- */
-const getProductByIdFromDB =
-  async (
-    id: string
-  ) => {
-    if (
-      !isValidObjectId(id)
-    ) {
-      throw new AppError(
-        400,
-        "Invalid product ID"
-      );
-    }
+/** Public product details. */
+const getProductByIdFromDB = async (id: string) => {
+  if (!isValidObjectId(id)) {
+    throw new AppError(400, "Invalid product ID");
+  }
 
-    const product =
-      await Product.findOne({
-        _id: id,
+  const product = await Product.findOne({
+    _id: id,
+    isDeleted: { $ne: true },
+    status: { $in: ["available", "out_of_stock"] },
+  })
+    .select("-sellerEmail -sellerContact -moderationReason -moderatedBy")
+    .lean();
 
-        isDeleted: {
-          $ne: true,
-        },
+  if (!product) {
+    throw new AppError(404, "Product not found");
+  }
 
-        status: {
-          $in: [
-            "available",
-            "out_of_stock",
-          ],
-        },
-      })
-        .select(
-          "-sellerEmail -sellerContact"
-        )
-        .lean();
+  return product;
+};
 
-    if (!product) {
-      throw new AppError(
-        404,
-        "Product not found"
-      );
-    }
-
-    return product;
+/** Farmer's own listings. */
+const getMyListingsFromDB = async (
+  query: IMyListingsQueryParams,
+  sellerId: string,
+  sellerEmail: string
+) => {
+  const queryObj: Record<string, any> = {
+    ...sellerIdentityFilter(sellerId, sellerEmail),
+    isDeleted: { $ne: true },
   };
 
-/**
- * Farmer's own listings.
- */
-const getMyListingsFromDB =
-  async (
-    query: IMyListingsQueryParams,
-    sellerEmail: string
-  ) => {
-    const queryObj: Record<
-      string,
-      any
-    > = {
-      sellerEmail:
-        sellerEmail
-          .trim()
-          .toLowerCase(),
+  applyCommonFilters(queryObj, query);
 
-      isDeleted: {
-        $ne: true,
-      },
-    };
+  if (query.status) {
+    queryObj.status = query.status;
+  }
 
-    applyCommonFilters(
-      queryObj,
-      query
-    );
+  const page = Math.max(Number(query.page) || 1, 1);
+  const limit = Math.min(
+    Math.max(Number(query.limit) || 20, 1),
+    50
+  );
+  const skip = (page - 1) * limit;
+  const sortConditions = buildSortConditions(query);
 
-    if (query.status) {
-      queryObj.status =
-        query.status;
-    }
+  const [products, total] = await Promise.all([
+    Product.find(queryObj)
+      .sort(sortConditions)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Product.countDocuments(queryObj),
+  ]);
 
-    const page = Math.max(
-      Number(query.page) || 1,
-      1
-    );
-
-    const limit = Math.min(
-      Math.max(
-        Number(query.limit) || 20,
-        1
-      ),
-      50
-    );
-
-    const skip =
-      (page - 1) * limit;
-
-    const sortConditions =
-      buildSortConditions(
-        query
-      );
-
-    const [
-      products,
+  return {
+    meta: {
+      page,
+      limit,
       total,
-    ] = await Promise.all([
-      Product.find(queryObj)
-        .sort(sortConditions)
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+      totalPages: Math.max(Math.ceil(total / limit), 1),
+    },
+    data: products,
+  };
+};
 
-      Product.countDocuments(
-        queryObj
-      ),
-    ]);
+const getMyListingByIdFromDB = async (
+  id: string,
+  sellerId: string,
+  sellerEmail: string
+) => {
+  if (!isValidObjectId(id)) {
+    throw new AppError(400, "Invalid product ID");
+  }
 
-    return {
-      meta: {
-        page,
-        limit,
-        total,
-        totalPages: Math.max(
-          Math.ceil(
-            total / limit
-          ),
-          1
-        ),
+  const product = await Product.findOne({
+    _id: id,
+    ...sellerIdentityFilter(sellerId, sellerEmail),
+    isDeleted: { $ne: true },
+  }).lean();
+
+  if (!product) {
+    throw new AppError(
+      404,
+      "Product not found or you are not allowed to access it"
+    );
+  }
+
+  return product;
+};
+
+/**
+ * Farmer edits their own listing without a new approval cycle.
+ * A listing hidden by admin stays hidden until admin restores it.
+ */
+const updateProductInDB = async (
+  id: string,
+  sellerId: string,
+  sellerEmail: string,
+  payload: Partial<IProduct>
+) => {
+  if (!isValidObjectId(id)) {
+    throw new AppError(400, "Invalid product ID");
+  }
+
+  const product = await Product.findOne({
+    _id: id,
+    ...sellerIdentityFilter(sellerId, sellerEmail),
+    isDeleted: { $ne: true },
+  });
+
+  if (!product) {
+    throw new AppError(
+      404,
+      "Product not found or you are not allowed to update it"
+    );
+  }
+
+  const wasAdminDisabled = product.status === "disabled";
+
+  const allowedFields = [
+    "title",
+    "description",
+    "price",
+    "category",
+    "transactionType",
+    "productionMethod",
+    "quantity",
+    "unit",
+    "images",
+    "sellerContact",
+    "location",
+    "division",
+    "district",
+    "upazila",
+    "poultryDetails",
+    "byProductUses",
+  ] as const;
+
+  for (const field of allowedFields) {
+    const value = payload[field];
+    if (value !== undefined) {
+      (product as any)[field] = value;
+    }
+  }
+
+  const transactionType = product.transactionType ?? "sale";
+
+  if (transactionType === "free") {
+    product.price = 0;
+  }
+
+  if (transactionType === "sale" && Number(product.price) <= 0) {
+    throw new AppError(
+      400,
+      "Sale products must have a price greater than 0"
+    );
+  }
+
+  if (
+    product.category === "poultry" &&
+    !product.poultryDetails?.poultryType
+  ) {
+    throw new AppError(
+      400,
+      "Poultry type is required for poultry listings"
+    );
+  }
+
+  if (product.category !== "poultry") {
+    product.poultryDetails = undefined;
+  }
+
+  if (product.category !== "by_products") {
+    product.byProductUses = [];
+  }
+
+  product.quantity = Math.max(Number(product.quantity) || 0, 0);
+
+  if (wasAdminDisabled) {
+    product.status = "disabled";
+  } else {
+    product.status = product.quantity > 0 ? "available" : "out_of_stock";
+    product.rejectionReason = undefined;
+  }
+
+  await product.save();
+  return product;
+};
+
+const deleteProductFromDB = async (
+  id: string,
+  sellerId: string,
+  sellerEmail: string
+) => {
+  if (!isValidObjectId(id)) {
+    throw new AppError(400, "Invalid product ID");
+  }
+
+  const result = await Product.findOneAndUpdate(
+    {
+      _id: id,
+      ...sellerIdentityFilter(sellerId, sellerEmail),
+      isDeleted: { $ne: true },
+    },
+    {
+      $set: {
+        isDeleted: true,
+        status: "disabled",
       },
+    },
+    { new: true, runValidators: true }
+  );
 
-      data: products,
-    };
-  };
+  if (!result) {
+    throw new AppError(
+      404,
+      "Product not found or you are not allowed to delete it"
+    );
+  }
 
-/**
- * Farmer updates own product.
- *
- * Any meaningful update sends the listing
- * back to PENDING so admin can review it again.
- */
-const updateProductInDB =
-  async (
-    id: string,
-    sellerEmail: string,
-    payload: Partial<IProduct>
-  ) => {
-    if (
-      !isValidObjectId(id)
-    ) {
-      throw new AppError(
-        400,
-        "Invalid product ID"
-      );
-    }
-
-    const product =
-      await Product.findOne({
-        _id: id,
-
-        sellerEmail:
-          sellerEmail
-            .trim()
-            .toLowerCase(),
-
-        isDeleted: {
-          $ne: true,
-        },
-      });
-
-    if (!product) {
-      throw new AppError(
-        404,
-        "Product not found or you are not allowed to update it"
-      );
-    }
-
-    const allowedFields = [
-      "title",
-      "description",
-      "price",
-      "category",
-      "transactionType",
-      "productionMethod",
-      "quantity",
-      "unit",
-      "images",
-      "sellerContact",
-      "location",
-      "division",
-      "district",
-      "upazila",
-      "poultryDetails",
-      "byProductUses",
-    ] as const;
-
-    let hasListingChanges =
-      false;
-
-    for (
-      const field of
-        allowedFields
-    ) {
-      const value =
-        payload[field];
-
-      if (
-        value !== undefined
-      ) {
-        (
-          product as any
-        )[field] = value;
-
-        hasListingChanges = true;
-      }
-    }
-
-    const transactionType =
-      product.transactionType ??
-      "sale";
-
-    if (
-      transactionType ===
-      "free"
-    ) {
-      product.price = 0;
-    }
-
-    if (
-      transactionType ===
-        "sale" &&
-      Number(product.price) <= 0
-    ) {
-      throw new AppError(
-        400,
-        "Sale products must have a price greater than 0"
-      );
-    }
-
-    if (
-      product.category ===
-        "poultry" &&
-      !product.poultryDetails
-        ?.poultryType
-    ) {
-      throw new AppError(
-        400,
-        "Poultry type is required for poultry listings"
-      );
-    }
-
-    if (
-      product.category !==
-      "poultry"
-    ) {
-      product.poultryDetails =
-        undefined;
-    }
-
-    if (
-      product.category !==
-      "by_products"
-    ) {
-      product.byProductUses =
-        [];
-    }
-
-    if (
-      Number(product.quantity) <=
-      0
-    ) {
-      product.quantity = 0;
-      product.status =
-        "out_of_stock";
-    } else if (
-      hasListingChanges
-    ) {
-      /**
-       * If farmer changes product information,
-       * send it back for admin approval.
-       */
-      product.status =
-        "pending";
-    }
-
-    await product.save();
-
-    return product;
-  };
-
-/**
- * Farmer deletes own listing.
- */
-const deleteProductFromDB =
-  async (
-    id: string,
-    sellerEmail: string
-  ) => {
-    if (
-      !isValidObjectId(id)
-    ) {
-      throw new AppError(
-        400,
-        "Invalid product ID"
-      );
-    }
-
-    const result =
-      await Product.findOneAndUpdate(
-        {
-          _id: id,
-
-          sellerEmail:
-            sellerEmail
-              .trim()
-              .toLowerCase(),
-
-          isDeleted: {
-            $ne: true,
-          },
-        },
-
-        {
-          $set: {
-            isDeleted: true,
-
-            status: "disabled",
-          },
-        },
-
-        {
-          new: true,
-
-          runValidators: true,
-        }
-      );
-
-    if (!result) {
-      throw new AppError(
-        404,
-        "Product not found or you are not allowed to delete it"
-      );
-    }
-
-    return result;
-  };
+  return result;
+};
 
 export const ProductService = {
   createProductInDB,
-
   getProductsFromDB,
-
   getProductByIdFromDB,
-
   getMyListingsFromDB,
-
+  getMyListingByIdFromDB,
   updateProductInDB,
-
   deleteProductFromDB,
 };

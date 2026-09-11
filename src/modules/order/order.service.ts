@@ -8,6 +8,8 @@ import AppError from "../../utils/AppError";
 import {
     Product,
 } from "../product/product.model";
+import { NotificationService } from "../notification/notification.service";
+import { User } from "../user/user.model";
 
 import {
     Order,
@@ -55,6 +57,94 @@ const generateOrderNumber = () => {
         );
 
     return `AN-${timestamp}-${random}`;
+};
+
+const toSellerOrderView = (
+    order: any,
+    sellerId: string,
+    sellerEmail: string
+) => {
+    const normalizedEmail = sellerEmail.trim().toLowerCase();
+    const plain = typeof order?.toObject === "function" ? order.toObject() : order;
+
+    const fulfillments = (plain.fulfillments || []).filter(
+        (fulfillment: any) =>
+            fulfillment.sellerId === sellerId ||
+            fulfillment.sellerEmail === normalizedEmail
+    );
+
+    const items = fulfillments.flatMap((fulfillment: any) => fulfillment.items || []);
+    const subtotal = fulfillments.reduce(
+        (sum: number, fulfillment: any) => sum + Number(fulfillment.subtotal || 0),
+        0
+    );
+    const commissionAmount = fulfillments.reduce(
+        (sum: number, fulfillment: any) => sum + Number(fulfillment.commissionAmount || 0),
+        0
+    );
+    const sellerPayoutAmount = fulfillments.reduce(
+        (sum: number, fulfillment: any) => sum + Number(fulfillment.sellerPayout || 0),
+        0
+    );
+
+    return {
+        ...plain,
+        items,
+        fulfillments,
+        subtotal,
+        commissionAmount,
+        sellerPayoutAmount,
+        // Delivery is coordinated by AgriNova, so the seller view contains
+        // only this farmer's commercial portion of a multi-seller order.
+        deliveryFee: 0,
+        totalAmount: subtotal,
+    };
+};
+
+const notifyNewOrderSellers = async (order: any) => {
+    const notifications = (order.fulfillments || [])
+        .filter((fulfillment: any) => fulfillment.sellerId)
+        .map((fulfillment: any) => ({
+            userId: String(fulfillment.sellerId),
+            type: "MARKETPLACE_NEW_ORDER" as const,
+            title: "New marketplace order",
+            message: `You received a new order (${order.orderNumber}) for ${fulfillment.items.length} item${fulfillment.items.length === 1 ? "" : "s"}.`,
+            href: "/seller-orders",
+            data: {
+                orderId: String(order._id),
+                orderNumber: order.orderNumber,
+            },
+        }));
+
+    if (notifications.length) {
+        await NotificationService.createManyNotifications(notifications);
+    }
+};
+
+const notifyAdminsReadyForPickup = async (order: any, fulfillment: any) => {
+    const admins = await User.find({
+        role: "ADMIN",
+        status: { $ne: "BLOCKED" },
+    })
+        .select("_id")
+        .lean();
+
+    if (!admins.length) return;
+
+    await NotificationService.createManyNotifications(
+        admins.map((admin) => ({
+            userId: String(admin._id),
+            type: "MARKETPLACE_READY_FOR_PICKUP" as const,
+            title: "Marketplace pickup ready",
+            message: `${fulfillment.sellerName} marked order ${order.orderNumber} ready for pickup.`,
+            href: "/dashboard/admin/marketplace?tab=fulfillment",
+            data: {
+                orderId: String(order._id),
+                orderNumber: order.orderNumber,
+                sellerId: fulfillment.sellerId,
+            },
+        }))
+    );
 };
 
 const createOrderInDB = async (
@@ -233,6 +323,8 @@ const createOrderInDB = async (
             continue;
         }
 
+        const sourceProduct = productMap.get(item.productId);
+
         grouped.set(
             sellerKey,
             {
@@ -264,6 +356,16 @@ const createOrderInDB = async (
 
                 status:
                     "pending",
+
+                pickupAddress:
+                    [
+                        sourceProduct?.location,
+                        sourceProduct?.upazila,
+                        sourceProduct?.district,
+                        sourceProduct?.division,
+                    ]
+                        .filter(Boolean)
+                        .join(", ") || undefined,
             }
         );
     }
@@ -456,6 +558,10 @@ const createOrderInDB = async (
             }
         );
 
+        if (createdOrder && createdOrder.paymentMethod === "cod") {
+            await notifyNewOrderSellers(createdOrder);
+        }
+
         return createdOrder;
     } finally {
         await session.endSession();
@@ -518,14 +624,18 @@ const getSellerOrdersFromDB =
 
         const orders =
             await Order.find({
-                $or: [
+                $and: [
                     {
-                        "fulfillments.sellerId":
-                            sellerId,
+                        $or: [
+                            { "fulfillments.sellerId": sellerId },
+                            { "fulfillments.sellerEmail": normalizedEmail },
+                        ],
                     },
                     {
-                        "fulfillments.sellerEmail":
-                            normalizedEmail,
+                        $or: [
+                            { paymentMethod: "cod" },
+                            { paymentMethod: "card", paymentStatus: "paid" },
+                        ],
                     },
                 ],
             })
@@ -534,19 +644,8 @@ const getSellerOrdersFromDB =
                 })
                 .lean();
 
-        return orders.map(
-            (order) => ({
-                ...order,
-
-                fulfillments:
-                    order.fulfillments.filter(
-                        (fulfillment) =>
-                            fulfillment.sellerId ===
-                            sellerId ||
-                            fulfillment.sellerEmail ===
-                            normalizedEmail
-                    ),
-            })
+        return orders.map((order) =>
+            toSellerOrderView(order, sellerId, normalizedEmail)
         );
     };
 
@@ -597,16 +696,18 @@ const updateSellerFulfillment =
         const order =
             await Order.findOne({
                 _id: orderId,
-
-                $or: [
+                $and: [
                     {
-                        "fulfillments.sellerId":
-                            sellerId,
+                        $or: [
+                            { "fulfillments.sellerId": sellerId },
+                            { "fulfillments.sellerEmail": normalizedEmail },
+                        ],
                     },
-
                     {
-                        "fulfillments.sellerEmail":
-                            normalizedEmail,
+                        $or: [
+                            { paymentMethod: "cod" },
+                            { paymentMethod: "card", paymentStatus: "paid" },
+                        ],
                     },
                 ],
             });
@@ -799,7 +900,11 @@ const updateSellerFulfillment =
 
         await order.save();
 
-        return order;
+        if (status === "ready_for_pickup") {
+            await notifyAdminsReadyForPickup(order, fulfillment);
+        }
+
+        return toSellerOrderView(order, sellerId, normalizedEmail);
     };
 const updateAdminFulfillment =
     async (
@@ -1014,6 +1119,39 @@ const updateAdminFulfillment =
         }
 
         await order.save();
+
+        if (status === "picked_up" && fulfillment.sellerId) {
+            await NotificationService.createNotification({
+                userId: String(fulfillment.sellerId),
+                type: "MARKETPLACE_PICKED_UP",
+                title: "Marketplace order collected",
+                message: `AgriNova collected your items for order ${order.orderNumber}.`,
+                href: "/seller-orders",
+                data: { orderId: String(order._id), orderNumber: order.orderNumber },
+            });
+        }
+
+        if (status === "out_for_delivery") {
+            await NotificationService.createNotification({
+                userId: String(order.customerId),
+                type: "MARKETPLACE_OUT_FOR_DELIVERY",
+                title: "Order is out for delivery",
+                message: `Order ${order.orderNumber} is on the way to you.`,
+                href: `/orders/${order._id}`,
+                data: { orderId: String(order._id), orderNumber: order.orderNumber },
+            });
+        }
+
+        if (status === "delivered") {
+            await NotificationService.createNotification({
+                userId: String(order.customerId),
+                type: "MARKETPLACE_DELIVERED",
+                title: "Order delivered",
+                message: `Order ${order.orderNumber} was marked delivered.`,
+                href: `/orders/${order._id}`,
+                data: { orderId: String(order._id), orderNumber: order.orderNumber },
+            });
+        }
 
         return order;
     };

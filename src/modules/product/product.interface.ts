@@ -59,6 +59,9 @@ export interface IProduct {
   approvedAt?: Date;
   approvedBy?: string;
   rejectionReason?: string;
+  moderationReason?: string;
+  moderatedAt?: Date;
+  moderatedBy?: string;
 
   poultryDetails?: IPoultryDetails;
 
@@ -82,6 +85,7 @@ export interface IProductQueryParams {
   productionMethod?: string;
 
   location?: string;
+  district?: string;
 
   minPrice?: string;
   maxPrice?: string;

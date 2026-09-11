@@ -20,6 +20,7 @@ const router =
 router.post(
     "/",
     authenticate,
+    authorize("FARMER"),
     validateRequest(
         OrderValidation.createOrderValidationSchema
     ),
@@ -29,12 +30,14 @@ router.post(
 router.get(
     "/my",
     authenticate,
+    authorize("FARMER"),
     OrderController.getMyOrders
 );
 
 router.get(
     "/my/:orderId",
     authenticate,
+    authorize("FARMER"),
     OrderController.getMyOrderById
 );
 

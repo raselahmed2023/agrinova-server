@@ -3,6 +3,7 @@ import multer from "multer";
 
 import {
   farmingAssistantSchema,
+  smartFarmingRecommendationSchema,
   treatmentRecommendationSchema,
 } from "./ai.validation.js";
 
@@ -32,6 +33,7 @@ router.post(
 
 router.post(
   "/smart-farming-recommendation",
+  validateRequest(smartFarmingRecommendationSchema),
   getSmartFarmingRecommendation
 );
 

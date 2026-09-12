@@ -1,15 +1,10 @@
 import axios from "axios";
-
-import {
+import mongoose, {
   isValidObjectId,
   Types,
 } from "mongoose";
 
 import AppError from "../../utils/AppError";
-
-import {
-  User,
-} from "../user/user.model";
 
 import {
   NotificationService,
@@ -21,9 +16,7 @@ import {
 
 interface CommunityUser {
   id: string;
-
   name?: string;
-
   email: string;
 
   role:
@@ -36,9 +29,19 @@ interface CommunityCommentLike {
   _id?: unknown;
 }
 
-/* ============================================================
-   HELPERS
-============================================================ */
+const getAuthUserCollection = () => {
+  const authDb =
+    mongoose.connection.useDb(
+      "AgriNove-auth",
+      {
+        useCache: true,
+      }
+    );
+
+  return authDb.collection(
+    "user"
+  );
+};
 
 const requireObjectId = (
   id: string,
@@ -54,9 +57,173 @@ const requireObjectId = (
   }
 };
 
+const avatarFromUser = (
+  user:
+    | Record<string, any>
+    | undefined
+    | null
+) => {
+  return String(
+    user?.avatar ||
+      user?.image ||
+      ""
+  );
+};
+
+const getAuthProfilesMap =
+  async (
+    ids: string[]
+  ) => {
+    const uniqueIds = [
+      ...new Set(
+        ids
+          .map(String)
+          .filter(
+            (
+              id
+            ) =>
+              isValidObjectId(
+                id
+              )
+          )
+      ),
+    ];
+
+    const map =
+      new Map<
+        string,
+        Record<
+          string,
+          any
+        >
+      >();
+
+    if (
+      uniqueIds.length ===
+      0
+    ) {
+      return map;
+    }
+
+    const objectIds =
+      uniqueIds.map(
+        (
+          id
+        ) =>
+          new Types.ObjectId(
+            id
+          )
+      );
+
+    const users =
+      await getAuthUserCollection()
+        .find({
+          _id: {
+            $in:
+              objectIds as any,
+          },
+        })
+        .project({
+          name: 1,
+          avatar: 1,
+          image: 1,
+          location: 1,
+          role: 1,
+          createdAt: 1,
+        })
+        .toArray();
+
+    users.forEach(
+      (
+        user
+      ) => {
+        map.set(
+          String(
+            user._id
+          ),
+          user
+        );
+      }
+    );
+
+    return map;
+  };
+
+const collectPostUserIds =
+  (
+    posts: any[]
+  ) => {
+    const ids:
+      string[] = [];
+
+    posts.forEach(
+      (
+        post
+      ) => {
+        if (
+          post?.authorId
+        ) {
+          ids.push(
+            String(
+              post.authorId
+            )
+          );
+        }
+
+        (
+          post?.comments ||
+          []
+        ).forEach(
+          (
+            comment: any
+          ) => {
+            if (
+              comment?.authorId
+            ) {
+              ids.push(
+                String(
+                  comment.authorId
+                )
+              );
+            }
+
+            (
+              comment?.replies ||
+              []
+            ).forEach(
+              (
+                reply: any
+              ) => {
+                if (
+                  reply?.authorId
+                ) {
+                  ids.push(
+                    String(
+                      reply.authorId
+                    )
+                  );
+                }
+              }
+            );
+          }
+        );
+      }
+    );
+
+    return ids;
+  };
+
 const sanitizePost = (
   post: any,
-  viewerId?: string
+  viewerId?: string,
+  profiles:
+    Map<
+      string,
+      Record<
+        string,
+        any
+      >
+    > = new Map()
 ) => {
   const plain =
     typeof post?.toObject ===
@@ -76,20 +243,100 @@ const sanitizePost = (
         )
       : [];
 
+  const postAuthor =
+    profiles.get(
+      String(
+        plain.authorId
+      )
+    );
+
+  const comments =
+    Array.isArray(
+      plain?.comments
+    )
+      ? plain.comments.map(
+          (
+            comment: any
+          ) => {
+            const commentAuthor =
+              profiles.get(
+                String(
+                  comment.authorId
+                )
+              );
+
+            const replies =
+              Array.isArray(
+                comment.replies
+              )
+                ? comment.replies.map(
+                    (
+                      reply: any
+                    ) => {
+                      const replyAuthor =
+                        profiles.get(
+                          String(
+                            reply.authorId
+                          )
+                        );
+
+                      return {
+                        ...reply,
+
+                        authorName:
+                          replyAuthor
+                            ?.name ||
+                          reply.authorName,
+
+                        authorAvatar:
+                          avatarFromUser(
+                            replyAuthor
+                          ),
+                      };
+                    }
+                  )
+                : [];
+
+            return {
+              ...comment,
+
+              authorName:
+                commentAuthor
+                  ?.name ||
+                comment.authorName,
+
+              authorAvatar:
+                avatarFromUser(
+                  commentAuthor
+                ),
+
+              replies,
+            };
+          }
+        )
+      : [];
+
   return {
     ...plain,
 
+    authorName:
+      postAuthor?.name ||
+      plain.authorName,
+
+    authorAvatar:
+      avatarFromUser(
+        postAuthor
+      ),
+
     likes,
+
+    comments,
 
     likeCount:
       likes.length,
 
     commentCount:
-      Array.isArray(
-        plain?.comments
-      )
-        ? plain.comments.length
-        : 0,
+      comments.length,
 
     likedByMe:
       viewerId
@@ -102,20 +349,32 @@ const sanitizePost = (
   };
 };
 
+const hydratePosts =
+  async (
+    posts: any[],
+    viewerId?: string
+  ) => {
+    const profiles =
+      await getAuthProfilesMap(
+        collectPostUserIds(
+          posts
+        )
+      );
+
+    return posts.map(
+      (
+        post
+      ) =>
+        sanitizePost(
+          post,
+          viewerId,
+          profiles
+        )
+    );
+};
+
 /* ============================================================
-   PUBLIC COMMUNITY FEED
-
-   Logged-out users can:
-   - read posts
-   - see comments
-   - see replies
-
-   They cannot:
-   - like
-   - comment
-   - reply
-   - create
-   - see farmer profile
+   PUBLIC FEED
 ============================================================ */
 
 const getFeedFromDB =
@@ -168,31 +427,25 @@ const getFeedFromDB =
           .limit(limit)
           .lean(),
 
-        CommunityPost.countDocuments(
-          {
-            status:
-              "ACTIVE",
-          }
-        ),
+        CommunityPost.countDocuments({
+          status:
+            "ACTIVE",
+        }),
       ]);
+
+    const hydrated =
+      await hydratePosts(
+        posts as any[],
+        viewerId
+      );
 
     return {
       data:
-        posts.map(
-          (
-            post: unknown
-          ) =>
-            sanitizePost(
-              post,
-              viewerId
-            )
-        ),
+        hydrated,
 
       meta: {
         page,
-
         limit,
-
         total,
 
         totalPages:
@@ -212,7 +465,6 @@ const createPostInDB =
   async (
     payload: {
       content: string;
-
       images?: string[];
     },
 
@@ -229,16 +481,20 @@ const createPostInDB =
       );
     }
 
-    if (
-      !isValidObjectId(
-        user.id
-      )
-    ) {
-      throw new AppError(
-        400,
-        "Invalid farmer id"
+    requireObjectId(
+      user.id,
+      "farmer id"
+    );
+
+    const authUser =
+      await getAuthUserCollection().findOne(
+        {
+          _id:
+            new Types.ObjectId(
+              user.id
+            ) as any,
+        }
       );
-    }
 
     const created =
       await CommunityPost.create(
@@ -249,6 +505,7 @@ const createPostInDB =
             ),
 
           authorName:
+            authUser?.name ||
             user.name ||
             user.email.split(
               "@"
@@ -270,23 +527,25 @@ const createPostInDB =
         }
       );
 
-    return sanitizePost(
-      created,
-      user.id
-    );
+    const hydrated =
+      await hydratePosts(
+        [
+          created.toObject(),
+        ],
+        user.id
+      );
+
+    return hydrated[0];
   };
 
 /* ============================================================
-   GET OWN POST
+   OWN POST
 ============================================================ */
 
 const getOwnPost =
   async (
-    postId:
-      string,
-
-    farmerId:
-      string
+    postId: string,
+    farmerId: string
   ) => {
     requireObjectId(
       postId,
@@ -338,20 +597,16 @@ const getOwnPost =
   };
 
 /* ============================================================
-   UPDATE OWN POST
+   UPDATE POST
 ============================================================ */
 
 const updatePostInDB =
   async (
-    postId:
-      string,
-
-    farmerId:
-      string,
+    postId: string,
+    farmerId: string,
 
     payload: {
       content?: string;
-
       images?: string[];
     }
   ) => {
@@ -379,23 +634,25 @@ const updatePostInDB =
 
     await post.save();
 
-    return sanitizePost(
-      post,
-      farmerId
-    );
+    const hydrated =
+      await hydratePosts(
+        [
+          post.toObject(),
+        ],
+        farmerId
+      );
+
+    return hydrated[0];
   };
 
 /* ============================================================
-   DELETE OWN POST
+   DELETE POST
 ============================================================ */
 
 const deleteOwnPostFromDB =
   async (
-    postId:
-      string,
-
-    farmerId:
-      string
+    postId: string,
+    farmerId: string
   ) => {
     const post =
       await getOwnPost(
@@ -411,16 +668,13 @@ const deleteOwnPostFromDB =
   };
 
 /* ============================================================
-   LIKE / UNLIKE
+   LIKE
 ============================================================ */
 
 const toggleLikeInDB =
   async (
-    postId:
-      string,
-
-    farmerId:
-      string
+    postId: string,
+    farmerId: string
   ) => {
     requireObjectId(
       postId,
@@ -433,17 +687,15 @@ const toggleLikeInDB =
     );
 
     const post =
-      await CommunityPost.findOne(
-        {
-          _id:
-            new Types.ObjectId(
-              postId
-            ),
+      await CommunityPost.findOne({
+        _id:
+          new Types.ObjectId(
+            postId
+          ),
 
-          status:
-            "ACTIVE",
-        }
-      );
+        status:
+          "ACTIVE",
+      });
 
     if (!post) {
       throw new AppError(
@@ -484,10 +736,15 @@ const toggleLikeInDB =
 
     await post.save();
 
-    return sanitizePost(
-      post,
-      farmerId
-    );
+    const hydrated =
+      await hydratePosts(
+        [
+          post.toObject(),
+        ],
+        farmerId
+      );
+
+    return hydrated[0];
   };
 
 /* ============================================================
@@ -496,18 +753,18 @@ const toggleLikeInDB =
 
 const addCommentInDB =
   async (
-    postId:
-      string,
-
-    content:
-      string,
-
-    user:
-      CommunityUser
+    postId: string,
+    content: string,
+    user: CommunityUser
   ) => {
     requireObjectId(
       postId,
       "post id"
+    );
+
+    requireObjectId(
+      user.id,
+      "farmer id"
     );
 
     if (
@@ -520,23 +777,26 @@ const addCommentInDB =
       );
     }
 
-    requireObjectId(
-      user.id,
-      "farmer id"
-    );
-
-    const post =
-      await CommunityPost.findOne(
+    const authUser =
+      await getAuthUserCollection().findOne(
         {
           _id:
             new Types.ObjectId(
-              postId
-            ),
-
-          status:
-            "ACTIVE",
+              user.id
+            ) as any,
         }
       );
+
+    const post =
+      await CommunityPost.findOne({
+        _id:
+          new Types.ObjectId(
+            postId
+          ),
+
+        status:
+          "ACTIVE",
+      });
 
     if (!post) {
       throw new AppError(
@@ -553,6 +813,7 @@ const addCommentInDB =
           ),
 
         authorName:
+          authUser?.name ||
           user.name ||
           user.email.split(
             "@"
@@ -566,10 +827,24 @@ const addCommentInDB =
 
     await post.save();
 
-    return post.comments[
-      post.comments.length -
-        1
-    ];
+    const newComment =
+      post.comments[
+        post.comments.length -
+          1
+      ];
+
+    return {
+      ...(
+        newComment.toObject
+          ? newComment.toObject()
+          : newComment
+      ),
+
+      authorAvatar:
+        avatarFromUser(
+          authUser
+        ),
+    };
   };
 
 /* ============================================================
@@ -578,17 +853,10 @@ const addCommentInDB =
 
 const addReplyInDB =
   async (
-    postId:
-      string,
-
-    commentId:
-      string,
-
-    content:
-      string,
-
-    user:
-      CommunityUser
+    postId: string,
+    commentId: string,
+    content: string,
+    user: CommunityUser
   ) => {
     requireObjectId(
       postId,
@@ -598,6 +866,11 @@ const addReplyInDB =
     requireObjectId(
       commentId,
       "comment id"
+    );
+
+    requireObjectId(
+      user.id,
+      "farmer id"
     );
 
     if (
@@ -610,23 +883,26 @@ const addReplyInDB =
       );
     }
 
-    requireObjectId(
-      user.id,
-      "farmer id"
-    );
-
-    const post =
-      await CommunityPost.findOne(
+    const authUser =
+      await getAuthUserCollection().findOne(
         {
           _id:
             new Types.ObjectId(
-              postId
-            ),
-
-          status:
-            "ACTIVE",
+              user.id
+            ) as any,
         }
       );
+
+    const post =
+      await CommunityPost.findOne({
+        _id:
+          new Types.ObjectId(
+            postId
+          ),
+
+        status:
+          "ACTIVE",
+      });
 
     if (!post) {
       throw new AppError(
@@ -664,6 +940,7 @@ const addReplyInDB =
           ),
 
         authorName:
+          authUser?.name ||
           user.name ||
           user.email.split(
             "@"
@@ -675,31 +952,36 @@ const addReplyInDB =
 
     await post.save();
 
-    return comment.replies[
-      comment.replies.length -
-        1
-    ];
+    const reply =
+      comment.replies[
+        comment.replies.length -
+          1
+      ];
+
+    return {
+      ...(
+        reply.toObject
+          ? reply.toObject()
+          : reply
+      ),
+
+      authorAvatar:
+        avatarFromUser(
+          authUser
+        ),
+    };
   };
 
 /* ============================================================
-   FARMER COMMUNITY PROFILE
-
+   FARMER PROFILE
    IMPORTANT:
-   - Login required
-   - Farmer role required
-   - no email
-   - no phone
-   - no NID
-   - no private profile information
+   READ FROM AgriNove-auth DATABASE
 ============================================================ */
 
 const getFarmerProfileFromDB =
   async (
-    farmerId:
-      string,
-
-    viewerId:
-      string,
+    farmerId: string,
+    viewerId: string,
 
     query: Record<
       string,
@@ -711,30 +993,29 @@ const getFarmerProfileFromDB =
       "farmer id"
     );
 
-    requireObjectId(
-      viewerId,
-      "viewer id"
-    );
-
     const farmerObjectId =
       new Types.ObjectId(
         farmerId
       );
 
     const farmer =
-      await User.findOne(
+      await getAuthUserCollection().findOne(
         {
           _id:
-            farmerObjectId,
+            farmerObjectId as any,
 
           role:
             "FARMER",
+        },
+
+        {
+          projection: {
+            password: 0,
+            email: 0,
+            phone: 0,
+          },
         }
-      )
-        .select(
-          "name location createdAt"
-        )
-        .lean();
+      );
 
     if (!farmer) {
       throw new AppError(
@@ -766,37 +1047,18 @@ const getFarmerProfileFromDB =
       (page - 1) *
       limit;
 
-    /*
-      IMPORTANT FIX:
-
-      Do not create one shared variable like:
-
-      const filter = {
-        authorId: farmerId,
-        status: "ACTIVE"
-      };
-
-      Mongoose was selecting the wrong overload for that inferred
-      object type.
-
-      Use the exact typed values directly in find() and
-      countDocuments().
-    */
-
     const [
       posts,
       total,
     ] =
       await Promise.all([
-        CommunityPost.find(
-          {
-            authorId:
-              farmerObjectId,
+        CommunityPost.find({
+          authorId:
+            farmerObjectId,
 
-            status:
-              "ACTIVE",
-          }
-        )
+          status:
+            "ACTIVE",
+        })
           .sort({
             createdAt: -1,
           })
@@ -804,16 +1066,20 @@ const getFarmerProfileFromDB =
           .limit(limit)
           .lean(),
 
-        CommunityPost.countDocuments(
-          {
-            authorId:
-              farmerObjectId,
+        CommunityPost.countDocuments({
+          authorId:
+            farmerObjectId,
 
-            status:
-              "ACTIVE",
-          }
-        ),
+          status:
+            "ACTIVE",
+        }),
       ]);
+
+    const hydrated =
+      await hydratePosts(
+        posts as any[],
+        viewerId
+      );
 
     return {
       profile: {
@@ -823,11 +1089,21 @@ const getFarmerProfileFromDB =
           ),
 
         name:
-          farmer.name,
+          String(
+            farmer.name ||
+              "AgriNova Farmer"
+          ),
+
+        avatar:
+          avatarFromUser(
+            farmer
+          ),
 
         location:
-          farmer.location ||
-          "",
+          String(
+            farmer.location ||
+              ""
+          ),
 
         joinedAt:
           farmer.createdAt,
@@ -837,21 +1113,11 @@ const getFarmerProfileFromDB =
       },
 
       posts:
-        posts.map(
-          (
-            post: unknown
-          ) =>
-            sanitizePost(
-              post,
-              viewerId
-            )
-        ),
+        hydrated,
 
       meta: {
         page,
-
         limit,
-
         total,
 
         totalPages:
@@ -864,7 +1130,216 @@ const getFarmerProfileFromDB =
   };
 
 /* ============================================================
-   ADMIN MODERATION FEED
+   MY PROFILE
+============================================================ */
+
+const getMyProfileFromDB =
+  async (
+    farmerId: string
+  ) => {
+    requireObjectId(
+      farmerId,
+      "farmer id"
+    );
+
+    const farmer =
+      await getAuthUserCollection().findOne(
+        {
+          _id:
+            new Types.ObjectId(
+              farmerId
+            ) as any,
+
+          role:
+            "FARMER",
+        },
+
+        {
+          projection: {
+            password: 0,
+            email: 0,
+            phone: 0,
+          },
+        }
+      );
+
+    if (!farmer) {
+      throw new AppError(
+        404,
+        "Farmer profile not found"
+      );
+    }
+
+    const postCount =
+      await CommunityPost.countDocuments({
+        authorId:
+          new Types.ObjectId(
+            farmerId
+          ),
+
+        status:
+          "ACTIVE",
+      });
+
+    return {
+      _id:
+        String(
+          farmer._id
+        ),
+
+      name:
+        String(
+          farmer.name ||
+            "AgriNova Farmer"
+        ),
+
+      avatar:
+        avatarFromUser(
+          farmer
+        ),
+
+      location:
+        String(
+          farmer.location ||
+            ""
+        ),
+
+      joinedAt:
+        farmer.createdAt,
+
+      postCount,
+    };
+  };
+
+/* ============================================================
+   UPDATE MY PROFILE
+============================================================ */
+
+const updateMyProfileInDB =
+  async (
+    farmerId: string,
+
+    payload: {
+      avatar?: string;
+      location?: string;
+    }
+  ) => {
+    requireObjectId(
+      farmerId,
+      "farmer id"
+    );
+
+    const updates:
+      Record<
+        string,
+        unknown
+      > = {
+      updatedAt:
+        new Date(),
+    };
+
+    if (
+      payload.avatar !==
+      undefined
+    ) {
+      updates.avatar =
+        payload.avatar;
+
+      /*
+        Better Auth default image field too.
+        Navbar/session compatibility.
+      */
+      updates.image =
+        payload.avatar;
+    }
+
+    if (
+      payload.location !==
+      undefined
+    ) {
+      updates.location =
+        payload.location;
+    }
+
+    const farmer =
+      await getAuthUserCollection().findOneAndUpdate(
+        {
+          _id:
+            new Types.ObjectId(
+              farmerId
+            ) as any,
+
+          role:
+            "FARMER",
+        },
+
+        {
+          $set:
+            updates,
+        },
+
+        {
+          returnDocument:
+            "after",
+
+          projection: {
+            password: 0,
+            email: 0,
+            phone: 0,
+          },
+        }
+      );
+
+    if (!farmer) {
+      throw new AppError(
+        404,
+        "Farmer profile not found"
+      );
+    }
+
+    const postCount =
+      await CommunityPost.countDocuments({
+        authorId:
+          new Types.ObjectId(
+            farmerId
+          ),
+
+        status:
+          "ACTIVE",
+      });
+
+    return {
+      _id:
+        String(
+          farmer._id
+        ),
+
+      name:
+        String(
+          farmer.name ||
+            "AgriNova Farmer"
+        ),
+
+      avatar:
+        avatarFromUser(
+          farmer
+        ),
+
+      location:
+        String(
+          farmer.location ||
+            ""
+        ),
+
+      joinedAt:
+        farmer.createdAt,
+
+      postCount,
+    };
+  };
+
+/* ============================================================
+   ADMIN POSTS
 ============================================================ */
 
 const getAdminPostsFromDB =
@@ -910,10 +1385,7 @@ const getAdminPostsFromDB =
       ).trim();
 
     const filter:
-      Record<
-        string,
-        unknown
-      > = {};
+      any = {};
 
     if (
       status ===
@@ -932,7 +1404,7 @@ const getAdminPostsFromDB =
           "\\$&"
         );
 
-      const rx =
+      const regex =
         new RegExp(
           escaped,
           "i"
@@ -941,12 +1413,12 @@ const getAdminPostsFromDB =
       filter.$or = [
         {
           authorName:
-            rx,
+            regex,
         },
 
         {
           content:
-            rx,
+            regex,
         },
       ];
     }
@@ -971,22 +1443,18 @@ const getAdminPostsFromDB =
         ),
       ]);
 
+    const hydrated =
+      await hydratePosts(
+        posts as any[]
+      );
+
     return {
       data:
-        posts.map(
-          (
-            post: unknown
-          ) =>
-            sanitizePost(
-              post
-            )
-        ),
+        hydrated,
 
       meta: {
         page,
-
         limit,
-
         total,
 
         totalPages:
@@ -999,24 +1467,14 @@ const getAdminPostsFromDB =
   };
 
 /* ============================================================
-   ADMIN REMOVE POST
-
-   Admin:
-   - removes post
-   - stores reason
-   - farmer gets notification
+   ADMIN REMOVE
 ============================================================ */
 
 const removePostByAdminInDB =
   async (
-    postId:
-      string,
-
-    adminId:
-      string,
-
-    reason:
-      string
+    postId: string,
+    adminId: string,
+    reason: string
   ) => {
     requireObjectId(
       postId,
@@ -1087,24 +1545,24 @@ const removePostByAdminInDB =
       }
     );
 
-    return sanitizePost(
-      post
-    );
+    const hydrated =
+      await hydratePosts(
+        [
+          post.toObject(),
+        ]
+      );
+
+    return hydrated[0];
   };
 
 /* ============================================================
    ADMIN WARNING
-
-   Admin can send warning without deleting post.
 ============================================================ */
 
 const warnFarmerByAdminInDB =
   async (
-    postId:
-      string,
-
-    reason:
-      string
+    postId: string,
+    reason: string
   ) => {
     requireObjectId(
       postId,
@@ -1166,9 +1624,8 @@ const warnFarmerByAdminInDB =
   };
 
 /* ============================================================
-   COMMUNITY IMAGE UPLOAD
-
-   Uses same server-side ImgBB key.
+   OLD SERVER IMAGE UPLOAD
+   Kept for compatibility.
 ============================================================ */
 
 const uploadImageToImgBB =
@@ -1198,18 +1655,6 @@ const uploadImageToImgBB =
       );
     }
 
-    if (
-      file.size >
-      8 *
-        1024 *
-        1024
-    ) {
-      throw new AppError(
-        400,
-        "Image must be 8 MB or smaller"
-      );
-    }
-
     const form =
       new URLSearchParams();
 
@@ -1220,45 +1665,24 @@ const uploadImageToImgBB =
       )
     );
 
-    form.set(
-      "name",
-      `agrinova-community-${Date.now()}`
-    );
+    const response =
+      await axios.post(
+        `https://api.imgbb.com/1/upload?key=${encodeURIComponent(
+          apiKey
+        )}`,
 
-    let response;
+        form.toString(),
 
-    try {
-      response =
-        await axios.post(
-          `https://api.imgbb.com/1/upload?key=${encodeURIComponent(
-            apiKey
-          )}`,
+        {
+          headers: {
+            "Content-Type":
+              "application/x-www-form-urlencoded",
+          },
 
-          form.toString(),
-
-          {
-            headers: {
-              "Content-Type":
-                "application/x-www-form-urlencoded",
-            },
-
-            timeout:
-              25000,
-          }
-        );
-    } catch (
-      error
-    ) {
-      console.error(
-        "Community ImgBB upload failed:",
-        error
+          timeout:
+            25000,
+        }
       );
-
-      throw new AppError(
-        502,
-        "Unable to upload Community image"
-      );
-    }
 
     const url =
       response.data?.data
@@ -1269,7 +1693,7 @@ const uploadImageToImgBB =
     if (!url) {
       throw new AppError(
         502,
-        "ImgBB did not return an image URL"
+        "Image upload failed"
       );
     }
 
@@ -1279,31 +1703,21 @@ const uploadImageToImgBB =
     };
   };
 
-/* ============================================================
-   EXPORT
-============================================================ */
-
 export const CommunityService = {
   getFeedFromDB,
-
   createPostInDB,
-
   updatePostInDB,
-
   deleteOwnPostFromDB,
-
   toggleLikeInDB,
-
   addCommentInDB,
-
   addReplyInDB,
 
   getFarmerProfileFromDB,
+  getMyProfileFromDB,
+  updateMyProfileInDB,
 
   getAdminPostsFromDB,
-
   removePostByAdminInDB,
-
   warnFarmerByAdminInDB,
 
   uploadImageToImgBB,

@@ -34,10 +34,6 @@ import {
   ExpertRoutes,
 } from "../app/modules/expert/expert.route";
 
-/*
-  BLOG IS UNDER:
-  src/modules/blog/
-*/
 import {
   BlogRoutes,
 } from "../modules/blog/blog.route";
@@ -54,12 +50,17 @@ import {
   PaymentRoutes,
 } from "../modules/payment/payment.route";
 
+import communityRouter from "../modules/community/community.route";
+
 const router =
   Router();
 
 router.get(
   "/health",
-  (_req, res) => {
+  (
+    _req,
+    res
+  ) => {
     res
       .status(200)
       .json({
@@ -73,21 +74,24 @@ router.get(
 
 const moduleRoutes = [
   {
-    path: "/farms",
+    path:
+      "/farms",
 
     route:
       FarmRoutes,
   },
 
   {
-    path: "/weather",
+    path:
+      "/weather",
 
     route:
       WeatherRoutes,
   },
 
   {
-    path: "/ai",
+    path:
+      "/ai",
 
     route:
       aiRouter,
@@ -102,7 +106,8 @@ const moduleRoutes = [
   },
 
   {
-    path: "/finance",
+    path:
+      "/finance",
 
     route:
       financeRouter,
@@ -141,17 +146,27 @@ const moduleRoutes = [
   },
 
   {
-    path: "/admin",
+    path:
+      "/admin",
 
     route:
       AdminRoutes,
   },
 
   {
-    path: "/blogs",
+    path:
+      "/blogs",
 
     route:
       BlogRoutes,
+  },
+
+  {
+    path:
+      "/community",
+
+    route:
+      communityRouter,
   },
 
   {
@@ -163,7 +178,8 @@ const moduleRoutes = [
   },
 
   {
-    path: "/orders",
+    path:
+      "/orders",
 
     route:
       OrderRoutes,
@@ -179,10 +195,12 @@ const moduleRoutes = [
 ];
 
 moduleRoutes.forEach(
-  (route) => {
+  (
+    item
+  ) => {
     router.use(
-      route.path,
-      route.route
+      item.path,
+      item.route
     );
   }
 );

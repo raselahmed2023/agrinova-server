@@ -35,9 +35,7 @@ const upload =
   });
 
 /* ============================================================
-   ADMIN MODERATION
-
-   These must stay ABOVE dynamic post/farmer routes.
+   ADMIN
 ============================================================ */
 
 router.get(
@@ -84,7 +82,9 @@ router.post(
   CommunityController.warnFarmerByAdmin
 );
 
-
+/* ============================================================
+   PUBLIC FEED
+============================================================ */
 
 router.get(
   "/feed",
@@ -92,6 +92,43 @@ router.get(
   CommunityController.getFeed
 );
 
+/* ============================================================
+   OWN FARMER PROFILE
+
+   IMPORTANT: /me stays before dynamic profile paths
+============================================================ */
+
+router.get(
+  "/me",
+
+  authenticate,
+
+  authorize(
+    "FARMER"
+  ),
+
+  CommunityController.getMyProfile
+);
+
+router.patch(
+  "/me",
+
+  authenticate,
+
+  authorize(
+    "FARMER"
+  ),
+
+  validateRequest(
+    CommunityValidation.updateMyProfileSchema
+  ),
+
+  CommunityController.updateMyProfile
+);
+
+/* ============================================================
+   OTHER FARMER PROFILE
+============================================================ */
 
 router.get(
   "/farmers/:farmerId",
@@ -105,7 +142,9 @@ router.get(
   CommunityController.getFarmerProfile
 );
 
-
+/* ============================================================
+   LEGACY IMAGE UPLOAD
+============================================================ */
 
 router.post(
   "/upload-image",
@@ -123,7 +162,9 @@ router.post(
   CommunityController.uploadImage
 );
 
-
+/* ============================================================
+   POSTS
+============================================================ */
 
 router.post(
   "/posts",
@@ -169,7 +210,6 @@ router.delete(
   CommunityController.deleteOwnPost
 );
 
-
 router.post(
   "/posts/:postId/like",
 
@@ -181,8 +221,6 @@ router.post(
 
   CommunityController.toggleLike
 );
-
-
 
 router.post(
   "/posts/:postId/comments",
@@ -199,8 +237,6 @@ router.post(
 
   CommunityController.addComment
 );
-
-
 
 router.post(
   "/posts/:postId/comments/:commentId/replies",

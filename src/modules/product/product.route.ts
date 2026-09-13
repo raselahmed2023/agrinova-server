@@ -3,29 +3,24 @@ import { Router } from "express";
 import authenticate from "../../middleware/authenticate";
 import authorize from "../../middleware/authorize";
 import validateRequest from "../../middleware/validateRequest";
-
 import { ProductController } from "./product.controller";
 import { ProductValidation } from "./product.validation";
 
 const router = Router();
 
-/* PUBLIC */
+/** PUBLIC MARKETPLACE */
 router.get(
   "/products",
-  validateRequest(
-    ProductValidation.getProductsQueryValidationSchema
-  ),
+  validateRequest(ProductValidation.getProductsQueryValidationSchema),
   ProductController.getProducts
 );
 
-/* FARMER / SELLER - static routes MUST be before /products/:productId */
+/** FARMER / SELLER - keep static routes before /products/:productId */
 router.get(
   "/my-listings",
   authenticate,
   authorize("FARMER"),
-  validateRequest(
-    ProductValidation.getMyListingsQueryValidationSchema
-  ),
+  validateRequest(ProductValidation.getMyListingsQueryValidationSchema),
   ProductController.getMyListings
 );
 
@@ -33,17 +28,15 @@ router.get(
   "/my-listings/:productId",
   authenticate,
   authorize("FARMER"),
-  ProductController.getMyProductById
+  ProductController.getMyListingById
 );
 
-/* Backward-compatible URLs */
+/** Backward-compatible URLs */
 router.get(
   "/products/my-listings",
   authenticate,
   authorize("FARMER"),
-  validateRequest(
-    ProductValidation.getMyListingsQueryValidationSchema
-  ),
+  validateRequest(ProductValidation.getMyListingsQueryValidationSchema),
   ProductController.getMyListings
 );
 
@@ -51,16 +44,14 @@ router.get(
   "/products/my-listings/:productId",
   authenticate,
   authorize("FARMER"),
-  ProductController.getMyProductById
+  ProductController.getMyListingById
 );
 
 router.post(
   "/products",
   authenticate,
   authorize("FARMER"),
-  validateRequest(
-    ProductValidation.createProductValidationSchema
-  ),
+  validateRequest(ProductValidation.createProductValidationSchema),
   ProductController.createProduct
 );
 
@@ -68,9 +59,7 @@ router.patch(
   "/products/:productId",
   authenticate,
   authorize("FARMER"),
-  validateRequest(
-    ProductValidation.updateProductValidationSchema
-  ),
+  validateRequest(ProductValidation.updateProductValidationSchema),
   ProductController.updateProduct
 );
 
@@ -81,7 +70,7 @@ router.delete(
   ProductController.deleteProduct
 );
 
-/* Public single-product route comes last so it cannot shadow static routes. */
+/** Public detail must be after the static seller routes above. */
 router.get(
   "/products/:productId",
   ProductController.getSingleProduct

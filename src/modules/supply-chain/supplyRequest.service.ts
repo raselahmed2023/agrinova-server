@@ -117,6 +117,7 @@ const getAllSupplyRequestsFromDB =
           trackingCode: {
             $regex:
               escaped,
+
             $options:
               "i",
           },
@@ -126,6 +127,7 @@ const getAllSupplyRequestsFromDB =
           farmerName: {
             $regex:
               escaped,
+
             $options:
               "i",
           },
@@ -135,6 +137,7 @@ const getAllSupplyRequestsFromDB =
           phone: {
             $regex:
               escaped,
+
             $options:
               "i",
           },
@@ -144,6 +147,7 @@ const getAllSupplyRequestsFromDB =
           productName: {
             $regex:
               escaped,
+
             $options:
               "i",
           },
@@ -153,6 +157,7 @@ const getAllSupplyRequestsFromDB =
           district: {
             $regex:
               escaped,
+
             $options:
               "i",
           },
@@ -180,9 +185,7 @@ const getAllSupplyRequestsFromDB =
       );
 
     const skip =
-      (
-        page - 1
-      ) *
+      (page - 1) *
       limit;
 
     const [
@@ -223,6 +226,59 @@ const getAllSupplyRequestsFromDB =
 
       data,
     };
+  };
+
+const getSupplyRequestStatsFromDB =
+  async () => {
+    const grouped =
+      await SupplyRequest.aggregate([
+        {
+          $group: {
+            _id:
+              "$status",
+
+            count: {
+              $sum: 1,
+            },
+          },
+        },
+      ]);
+
+    const stats = {
+      SUBMITTED:
+        0,
+
+      ACCEPTED:
+        0,
+
+      REJECTED:
+        0,
+
+      RECEIVED:
+        0,
+
+      COMPLETED:
+        0,
+    };
+
+    for (
+      const item of
+      grouped
+    ) {
+      const key =
+        item._id as keyof typeof stats;
+
+      if (
+        key in stats
+      ) {
+        stats[key] =
+          Number(
+            item.count
+          ) || 0;
+      }
+    }
+
+    return stats;
   };
 
 const getSupplyRequestByIdFromDB =
@@ -406,8 +462,14 @@ const updateSupplyRequestStatusInDB =
 export const SupplyRequestService =
   {
     createSupplyRequestInDB,
+
     getAllSupplyRequestsFromDB,
+
+    getSupplyRequestStatsFromDB,
+
     getSupplyRequestByIdFromDB,
+
     trackSupplyRequestFromDB,
+
     updateSupplyRequestStatusInDB,
   };

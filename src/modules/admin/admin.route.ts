@@ -85,48 +85,44 @@ router.get(
   AdminController.getAdminProducts
 );
 
-/**
- * Single product
- */
 router.get(
   "/marketplace/products/:productId",
   AdminController.getAdminProductById
 );
 
 /**
- * Approve farmer listing
+ * Marketplace moderation. Farmer listings are published immediately;
+ * admin steps in only for policy/rules violations.
  */
 router.patch(
-  "/marketplace/products/:productId/approve",
-  AdminController.approveProduct
+  "/marketplace/products/:productId/moderate",
+  AdminController.moderateProduct
 );
-
-
-router.patch(
-  "/marketplace/products/:productId/reject",
-  AdminController.rejectProduct
-);
-
-/**
- * Disable an approved product
- */
-router.patch(
-  "/marketplace/products/:productId/disable",
-  AdminController.disableProduct
-);
-
 
 router.patch(
   "/marketplace/products/:productId/restore",
   AdminController.restoreProduct
 );
 
-/**
- * Soft delete product
- */
 router.delete(
   "/marketplace/products/:productId",
   AdminController.removeProduct
+);
+
+/** Legacy aliases for older frontend builds. */
+router.patch(
+  "/marketplace/products/:productId/approve",
+  AdminController.approveProduct
+);
+
+router.patch(
+  "/marketplace/products/:productId/reject",
+  AdminController.rejectProduct
+);
+
+router.patch(
+  "/marketplace/products/:productId/disable",
+  AdminController.disableProduct
 );
 
 

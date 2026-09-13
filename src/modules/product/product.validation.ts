@@ -6,10 +6,48 @@ import {
   BY_PRODUCT_USES,
   POULTRY_TYPES,
   PRODUCT_CATEGORIES,
+  PRODUCT_SELLER_STATUSES,
   PRODUCT_STATUSES,
   PRODUCTION_METHODS,
   TRANSACTION_TYPES,
 } from "./product.constant";
+
+const productImageSchema =
+  z
+    .string()
+    .trim()
+    .refine(
+      (value) => {
+        if (
+          /^\/uploads\/[A-Za-z0-9._-]+$/.test(
+            value
+          )
+        ) {
+          return true;
+        }
+
+        try {
+          const url =
+            new URL(
+              value
+            );
+
+          return (
+            url.protocol ===
+              "http:" ||
+            url.protocol ===
+              "https:"
+          );
+        } catch {
+          return false;
+        }
+      },
+
+      {
+        message:
+          "Image must be a valid HTTP(S) URL or /uploads/ path",
+      }
+    );
 
 const categorySchema =
   z.enum(
@@ -19,6 +57,11 @@ const categorySchema =
 const productStatusSchema =
   z.enum(
     PRODUCT_STATUSES
+  );
+
+const sellerStatusSchema =
+  z.enum(
+    PRODUCT_SELLER_STATUSES
   );
 
 const transactionTypeSchema =
@@ -66,11 +109,11 @@ const nonNegativeNumberString =
   z
     .string()
     .refine(
-      (
-        value
-      ) => {
+      (value) => {
         const number =
-          Number(value);
+          Number(
+            value
+          );
 
         return (
           Number.isFinite(
@@ -79,6 +122,7 @@ const nonNegativeNumberString =
           number >= 0
         );
       },
+
       {
         message:
           "Must be a valid non-negative number",
@@ -89,11 +133,11 @@ const positiveIntegerString =
   z
     .string()
     .refine(
-      (
-        value
-      ) => {
+      (value) => {
         const number =
-          Number(value);
+          Number(
+            value
+          );
 
         return (
           Number.isInteger(
@@ -102,6 +146,7 @@ const positiveIntegerString =
           number > 0
         );
       },
+
       {
         message:
           "Must be a positive integer",
@@ -154,12 +199,10 @@ const createProductValidationSchema =
             categorySchema,
 
           transactionType:
-            transactionTypeSchema
-              .optional(),
+            transactionTypeSchema.optional(),
 
           productionMethod:
-            productionMethodSchema
-              .optional(),
+            productionMethodSchema.optional(),
 
           quantity:
             z
@@ -187,9 +230,7 @@ const createProductValidationSchema =
           images:
             z
               .array(
-                z
-                  .string()
-                  .url()
+                productImageSchema
               )
               .max(5)
               .optional(),
@@ -242,6 +283,8 @@ const createProductValidationSchema =
               .max(10)
               .optional(),
 
+          status:
+            sellerStatusSchema.optional(),
         })
         .superRefine(
           (
@@ -323,8 +366,7 @@ const getProductsQueryValidationSchema =
               .optional(),
 
           category:
-            categorySchema
-              .optional(),
+            categorySchema.optional(),
 
           status:
             z
@@ -335,12 +377,10 @@ const getProductsQueryValidationSchema =
               .optional(),
 
           transactionType:
-            transactionTypeSchema
-              .optional(),
+            transactionTypeSchema.optional(),
 
           productionMethod:
-            productionMethodSchema
-              .optional(),
+            productionMethodSchema.optional(),
 
           location:
             z
@@ -353,12 +393,10 @@ const getProductsQueryValidationSchema =
               .optional(),
 
           minPrice:
-            nonNegativeNumberString
-              .optional(),
+            nonNegativeNumberString.optional(),
 
           maxPrice:
-            nonNegativeNumberString
-              .optional(),
+            nonNegativeNumberString.optional(),
 
           sort:
             z
@@ -390,12 +428,10 @@ const getProductsQueryValidationSchema =
               .optional(),
 
           page:
-            positiveIntegerString
-              .optional(),
+            positiveIntegerString.optional(),
 
           limit:
-            positiveIntegerString
-              .optional(),
+            positiveIntegerString.optional(),
         })
         .optional(),
   });
@@ -411,20 +447,16 @@ const getMyListingsQueryValidationSchema =
               .optional(),
 
           category:
-            categorySchema
-              .optional(),
+            categorySchema.optional(),
 
           status:
-            productStatusSchema
-              .optional(),
+            productStatusSchema.optional(),
 
           transactionType:
-            transactionTypeSchema
-              .optional(),
+            transactionTypeSchema.optional(),
 
           productionMethod:
-            productionMethodSchema
-              .optional(),
+            productionMethodSchema.optional(),
 
           location:
             z
@@ -437,12 +469,10 @@ const getMyListingsQueryValidationSchema =
               .optional(),
 
           minPrice:
-            nonNegativeNumberString
-              .optional(),
+            nonNegativeNumberString.optional(),
 
           maxPrice:
-            nonNegativeNumberString
-              .optional(),
+            nonNegativeNumberString.optional(),
 
           sort:
             z
@@ -474,12 +504,10 @@ const getMyListingsQueryValidationSchema =
               .optional(),
 
           page:
-            positiveIntegerString
-              .optional(),
+            positiveIntegerString.optional(),
 
           limit:
-            positiveIntegerString
-              .optional(),
+            positiveIntegerString.optional(),
         })
         .optional(),
   });
@@ -512,16 +540,13 @@ const updateProductValidationSchema =
               .optional(),
 
           category:
-            categorySchema
-              .optional(),
+            categorySchema.optional(),
 
           transactionType:
-            transactionTypeSchema
-              .optional(),
+            transactionTypeSchema.optional(),
 
           productionMethod:
-            productionMethodSchema
-              .optional(),
+            productionMethodSchema.optional(),
 
           quantity:
             z
@@ -540,9 +565,7 @@ const updateProductValidationSchema =
           images:
             z
               .array(
-                z
-                  .string()
-                  .url()
+                productImageSchema
               )
               .max(5)
               .optional(),
@@ -595,15 +618,15 @@ const updateProductValidationSchema =
               .max(10)
               .optional(),
 
+          status:
+            sellerStatusSchema.optional(),
         })
         .refine(
-          (
-            body
-          ) =>
+          (body) =>
             Object.keys(
               body
-            ).length >
-            0,
+            ).length > 0,
+
           {
             message:
               "At least one field is required",
@@ -621,4 +644,3 @@ export const ProductValidation =
 
     updateProductValidationSchema,
   };
-

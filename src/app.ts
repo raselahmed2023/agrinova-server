@@ -52,11 +52,12 @@ app.post(
     }),
     PaymentController.handleWebhook
 );
-app.use(
+app.post(
     "/api/v1/payments/stripe/webhook",
     express.raw({
         type: "application/json",
-    })
+    }),
+    PaymentController.handleWebhook
 );
 
 /**

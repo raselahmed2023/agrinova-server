@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import Stripe from "stripe";
 
 import { PaymentService } from "./payment.service";
+import { InvestmentService } from "../investment/investment.service";
 
 const getWebhookSecret = () => {
   const secret =
@@ -98,6 +99,83 @@ const getPaymentStatus = async (
   });
 };
 
+const verifyCheckoutSession = async (
+  req: Request,
+  res: Response
+) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required.",
+    });
+  }
+
+  const sessionId = Array.isArray(
+    req.params.sessionId
+  )
+    ? req.params.sessionId[0]
+    : req.params.sessionId;
+
+  if (!sessionId) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Stripe session ID is required.",
+    });
+  }
+
+  const result =
+    await PaymentService.verifyStripeCheckoutSession(
+      req.user.id,
+      sessionId
+    );
+
+  return res.status(200).json({
+    success: true,
+    message:
+      "Stripe checkout session verified.",
+    data: result,
+  });
+};
+
+const cancelCheckoutOrder = async (
+  req: Request,
+  res: Response
+) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required.",
+    });
+  }
+
+  const orderId = Array.isArray(
+    req.params.orderId
+  )
+    ? req.params.orderId[0]
+    : req.params.orderId;
+
+  if (!orderId) {
+    return res.status(400).json({
+      success: false,
+      message: "Order ID is required.",
+    });
+  }
+
+  const result =
+    await PaymentService.cancelPendingCardOrder(
+      req.user.id,
+      orderId
+    );
+
+  return res.status(200).json({
+    success: true,
+    message:
+      "Checkout cancelled and reserved stock released.",
+    data: result,
+  });
+};
+
 const handleWebhook = async (
   req: Request,
   res: Response
@@ -160,7 +238,28 @@ const handleWebhook = async (
         const orderId =
           session.metadata?.orderId;
 
+        const investmentApplicationId =
+          session.metadata
+            ?.investmentApplicationId;
+
         if (
+          investmentApplicationId &&
+          session.payment_status === "paid"
+        ) {
+          await InvestmentService.confirmPaidApplication(
+            investmentApplicationId,
+            {
+              stripeSessionId:
+                session.id,
+
+              stripePaymentIntentId:
+                typeof session.payment_intent ===
+                "string"
+                  ? session.payment_intent
+                  : undefined,
+            }
+          );
+        } else if (
           orderId &&
           session.payment_status === "paid"
         ) {
@@ -180,8 +279,57 @@ const handleWebhook = async (
         const orderId =
           session.metadata?.orderId;
 
-        if (orderId) {
+        const investmentApplicationId =
+          session.metadata
+            ?.investmentApplicationId;
+
+        if (
+          investmentApplicationId
+        ) {
+          await InvestmentService.confirmPaidApplication(
+            investmentApplicationId,
+            {
+              stripeSessionId:
+                session.id,
+
+              stripePaymentIntentId:
+                typeof session.payment_intent ===
+                "string"
+                  ? session.payment_intent
+                  : undefined,
+            }
+          );
+        } else if (orderId) {
           await PaymentService.markOrderPaid(
+            orderId,
+            session.id
+          );
+        }
+
+        break;
+      }
+
+      case "checkout.session.expired": {
+        const session =
+          event.data.object as Stripe.Checkout.Session;
+
+        const orderId =
+          session.metadata?.orderId;
+
+        const investmentApplicationId =
+          session.metadata
+            ?.investmentApplicationId;
+
+        
+        if (
+          investmentApplicationId
+        ) {
+          await InvestmentService.markInvestmentPaymentFailed(
+            investmentApplicationId,
+            session.id
+          );
+        } else if (orderId) {
+          await PaymentService.markOrderPaymentFailed(
             orderId,
             session.id
           );
@@ -197,7 +345,18 @@ const handleWebhook = async (
         const orderId =
           session.metadata?.orderId;
 
-        if (orderId) {
+        const investmentApplicationId =
+          session.metadata
+            ?.investmentApplicationId;
+
+        if (
+          investmentApplicationId
+        ) {
+          await InvestmentService.markInvestmentPaymentFailed(
+            investmentApplicationId,
+            session.id
+          );
+        } else if (orderId) {
           await PaymentService.markOrderPaymentFailed(
             orderId,
             session.id
@@ -208,19 +367,7 @@ const handleWebhook = async (
       }
 
       case "payment_intent.payment_failed": {
-        const paymentIntent =
-          event.data.object as Stripe.PaymentIntent;
-
-        const orderId =
-          paymentIntent.metadata?.orderId;
-
-        if (orderId) {
-          await PaymentService.markOrderPaymentFailed(
-            orderId,
-            paymentIntent.id
-          );
-        }
-
+       
         break;
       }
 
@@ -248,5 +395,7 @@ const handleWebhook = async (
 export const PaymentController = {
   createCheckoutSession,
   getPaymentStatus,
+  verifyCheckoutSession,
+  cancelCheckoutOrder,
   handleWebhook,
 };

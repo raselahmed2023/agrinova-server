@@ -104,25 +104,36 @@ const verifyCheckoutSession = async (
   res: Response
 ) => {
   if (!req.user) {
-    return res.status(401).json({ success: false, message: "Authentication required." });
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required.",
+    });
   }
 
-  const sessionId = Array.isArray(req.params.sessionId)
+  const sessionId = Array.isArray(
+    req.params.sessionId
+  )
     ? req.params.sessionId[0]
     : req.params.sessionId;
 
   if (!sessionId) {
-    return res.status(400).json({ success: false, message: "Stripe session ID is required." });
+    return res.status(400).json({
+      success: false,
+      message:
+        "Stripe session ID is required.",
+    });
   }
 
-  const result = await PaymentService.verifyStripeCheckoutSession(
-    req.user.id,
-    sessionId
-  );
+  const result =
+    await PaymentService.verifyStripeCheckoutSession(
+      req.user.id,
+      sessionId
+    );
 
   return res.status(200).json({
     success: true,
-    message: "Stripe checkout session verified.",
+    message:
+      "Stripe checkout session verified.",
     data: result,
   });
 };
@@ -132,25 +143,35 @@ const cancelCheckoutOrder = async (
   res: Response
 ) => {
   if (!req.user) {
-    return res.status(401).json({ success: false, message: "Authentication required." });
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required.",
+    });
   }
 
-  const orderId = Array.isArray(req.params.orderId)
+  const orderId = Array.isArray(
+    req.params.orderId
+  )
     ? req.params.orderId[0]
     : req.params.orderId;
 
   if (!orderId) {
-    return res.status(400).json({ success: false, message: "Order ID is required." });
+    return res.status(400).json({
+      success: false,
+      message: "Order ID is required.",
+    });
   }
 
-  const result = await PaymentService.cancelPendingCardOrder(
-    req.user.id,
-    orderId
-  );
+  const result =
+    await PaymentService.cancelPendingCardOrder(
+      req.user.id,
+      orderId
+    );
 
   return res.status(200).json({
     success: true,
-    message: "Checkout cancelled and reserved stock released.",
+    message:
+      "Checkout cancelled and reserved stock released.",
     data: result,
   });
 };
@@ -214,22 +235,38 @@ const handleWebhook = async (
         const session =
           event.data.object as Stripe.Checkout.Session;
 
-        const orderId = session.metadata?.orderId;
-        const investmentApplicationId = session.metadata?.investmentApplicationId;
+        const orderId =
+          session.metadata?.orderId;
 
-        if (investmentApplicationId && session.payment_status === "paid") {
+        const investmentApplicationId =
+          session.metadata
+            ?.investmentApplicationId;
+
+        if (
+          investmentApplicationId &&
+          session.payment_status === "paid"
+        ) {
           await InvestmentService.confirmPaidApplication(
             investmentApplicationId,
             {
-              stripeSessionId: session.id,
+              stripeSessionId:
+                session.id,
+
               stripePaymentIntentId:
-                typeof session.payment_intent === "string"
+                typeof session.payment_intent ===
+                "string"
                   ? session.payment_intent
                   : undefined,
             }
           );
-        } else if (orderId && session.payment_status === "paid") {
-          await PaymentService.markOrderPaid(orderId, session.id);
+        } else if (
+          orderId &&
+          session.payment_status === "paid"
+        ) {
+          await PaymentService.markOrderPaid(
+            orderId,
+            session.id
+          );
         }
 
         break;
@@ -239,22 +276,34 @@ const handleWebhook = async (
         const session =
           event.data.object as Stripe.Checkout.Session;
 
-        const orderId = session.metadata?.orderId;
-        const investmentApplicationId = session.metadata?.investmentApplicationId;
+        const orderId =
+          session.metadata?.orderId;
 
-        if (investmentApplicationId) {
+        const investmentApplicationId =
+          session.metadata
+            ?.investmentApplicationId;
+
+        if (
+          investmentApplicationId
+        ) {
           await InvestmentService.confirmPaidApplication(
             investmentApplicationId,
             {
-              stripeSessionId: session.id,
+              stripeSessionId:
+                session.id,
+
               stripePaymentIntentId:
-                typeof session.payment_intent === "string"
+                typeof session.payment_intent ===
+                "string"
                   ? session.payment_intent
                   : undefined,
             }
           );
         } else if (orderId) {
-          await PaymentService.markOrderPaid(orderId, session.id);
+          await PaymentService.markOrderPaid(
+            orderId,
+            session.id
+          );
         }
 
         break;
@@ -264,9 +313,26 @@ const handleWebhook = async (
         const session =
           event.data.object as Stripe.Checkout.Session;
 
-        const orderId = session.metadata?.orderId;
-        if (orderId) {
-          await PaymentService.markOrderPaymentFailed(orderId, session.id);
+        const orderId =
+          session.metadata?.orderId;
+
+        const investmentApplicationId =
+          session.metadata
+            ?.investmentApplicationId;
+
+        
+        if (
+          investmentApplicationId
+        ) {
+          await InvestmentService.markInvestmentPaymentFailed(
+            investmentApplicationId,
+            session.id
+          );
+        } else if (orderId) {
+          await PaymentService.markOrderPaymentFailed(
+            orderId,
+            session.id
+          );
         }
 
         break;
@@ -276,25 +342,32 @@ const handleWebhook = async (
         const session =
           event.data.object as Stripe.Checkout.Session;
 
-        const orderId = session.metadata?.orderId;
-        const investmentApplicationId = session.metadata?.investmentApplicationId;
+        const orderId =
+          session.metadata?.orderId;
 
-        if (investmentApplicationId) {
+        const investmentApplicationId =
+          session.metadata
+            ?.investmentApplicationId;
+
+        if (
+          investmentApplicationId
+        ) {
           await InvestmentService.markInvestmentPaymentFailed(
             investmentApplicationId,
             session.id
           );
         } else if (orderId) {
-          await PaymentService.markOrderPaymentFailed(orderId, session.id);
+          await PaymentService.markOrderPaymentFailed(
+            orderId,
+            session.id
+          );
         }
 
         break;
       }
 
       case "payment_intent.payment_failed": {
-        // A failed PaymentIntent inside an open Checkout Session can still be retried.
-        // Do not release reserved inventory here; release only when Checkout expires,
-        // async payment fails, or the customer explicitly cancels.
+       
         break;
       }
 

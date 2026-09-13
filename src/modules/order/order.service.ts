@@ -1,1209 +1,2436 @@
-import {
-    ClientSession,
-    isValidObjectId,
+import mongoose, {
+  ClientSession,
+  isValidObjectId,
 } from "mongoose";
 
 import AppError from "../../utils/AppError";
-
-import {
-    Product,
-} from "../product/product.model";
+import { Product } from "../product/product.model";
 import { NotificationService } from "../notification/notification.service";
-import { User } from "../user/user.model";
+import { Order } from "./order.model";
 
 import {
-    Order,
-} from "./order.model";
-
-import {
-    IOrderItem,
-    IOrderFulfillment,
-    IShippingAddress,
+  IOrderItem,
+  IOrderFulfillment,
+  IShippingAddress,
 } from "./order.interface";
 
-const getCommissionRate = () => {
-    const value = Number(
-        process.env.MARKETPLACE_COMMISSION_RATE ||
-        5
-    );
+const getAuthUserCollection = () =>
+  mongoose.connection
+    .useDb("AgriNove-auth", {
+      useCache: true,
+    })
+    .collection("user");
 
-    if (!Number.isFinite(value) || value < 0) {
-        return 5;
-    }
+const normalizeEmail = (
+  value?: string
+) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
 
-    return value;
-};
-
-const getDeliveryFee = () => {
-    const value = Number(
-        process.env.MARKETPLACE_DELIVERY_FEE ||
-        100
-    );
-
-    if (!Number.isFinite(value) || value < 0) {
-        return 100;
-    }
-
-    return value;
-};
-
-const generateOrderNumber = () => {
-    const timestamp =
-        Date.now().toString().slice(-8);
-
-    const random =
-        Math.floor(
-            1000 + Math.random() * 9000
-        );
-
-    return `AN-${timestamp}-${random}`;
-};
-
-const toSellerOrderView = (
-    order: any,
+const getOwnedProductIds =
+  async (
+    orders: any[],
     sellerId: string,
     sellerEmail: string
-) => {
-    const normalizedEmail = sellerEmail.trim().toLowerCase();
-    const plain = typeof order?.toObject === "function" ? order.toObject() : order;
+  ) => {
+    const productIds =
+      Array.from(
+        new Set(
+          orders
+            .flatMap((order) =>
+              (
+                order.fulfillments ||
+                []
+              ).flatMap(
+                (
+                  fulfillment: any
+                ) =>
+                  (
+                    fulfillment.items ||
+                    []
+                  ).map(
+                    (item: any) =>
+                      String(
+                        item.productId ||
+                          ""
+                      )
+                  )
+              )
+            )
+            .filter(Boolean)
+        )
+      );
 
-    const fulfillments = (plain.fulfillments || []).filter(
-        (fulfillment: any) =>
-            fulfillment.sellerId === sellerId ||
-            fulfillment.sellerEmail === normalizedEmail
-    );
-
-    const items = fulfillments.flatMap((fulfillment: any) => fulfillment.items || []);
-    const subtotal = fulfillments.reduce(
-        (sum: number, fulfillment: any) => sum + Number(fulfillment.subtotal || 0),
-        0
-    );
-    const commissionAmount = fulfillments.reduce(
-        (sum: number, fulfillment: any) => sum + Number(fulfillment.commissionAmount || 0),
-        0
-    );
-    const sellerPayoutAmount = fulfillments.reduce(
-        (sum: number, fulfillment: any) => sum + Number(fulfillment.sellerPayout || 0),
-        0
-    );
-
-    return {
-        ...plain,
-        items,
-        fulfillments,
-        subtotal,
-        commissionAmount,
-        sellerPayoutAmount,
-        // Delivery is coordinated by AgriNova, so the seller view contains
-        // only this farmer's commercial portion of a multi-seller order.
-        deliveryFee: 0,
-        totalAmount: subtotal,
-    };
-};
-
-const notifyNewOrderSellers = async (order: any) => {
-    const notifications = (order.fulfillments || [])
-        .filter((fulfillment: any) => fulfillment.sellerId)
-        .map((fulfillment: any) => ({
-            userId: String(fulfillment.sellerId),
-            type: "MARKETPLACE_NEW_ORDER" as const,
-            title: "New marketplace order",
-            message: `You received a new order (${order.orderNumber}) for ${fulfillment.items.length} item${fulfillment.items.length === 1 ? "" : "s"}.`,
-            href: "/seller-orders",
-            data: {
-                orderId: String(order._id),
-                orderNumber: order.orderNumber,
-            },
-        }));
-
-    if (notifications.length) {
-        await NotificationService.createManyNotifications(notifications);
+    if (!productIds.length) {
+      return new Set<string>();
     }
-};
 
-const notifyAdminsReadyForPickup = async (order: any, fulfillment: any) => {
-    const admins = await User.find({
-        role: "ADMIN",
-        status: { $ne: "BLOCKED" },
-    })
+    const normalizedEmail =
+      normalizeEmail(
+        sellerEmail
+      );
+
+    const products =
+      await Product.find({
+        _id: {
+          $in: productIds,
+        },
+
+        $or: [
+          {
+            sellerId,
+          },
+
+          {
+            $and: [
+              {
+                $or: [
+                  {
+                    sellerId: {
+                      $exists:
+                        false,
+                    },
+                  },
+
+                  {
+                    sellerId:
+                      null,
+                  },
+
+                  {
+                    sellerId:
+                      "",
+                  },
+                ],
+              },
+
+              {
+                sellerEmail:
+                  normalizedEmail,
+              },
+            ],
+          },
+        ],
+      })
         .select("_id")
         .lean();
 
-    if (!admins.length) return;
-
-    await NotificationService.createManyNotifications(
-        admins.map((admin) => ({
-            userId: String(admin._id),
-            type: "MARKETPLACE_READY_FOR_PICKUP" as const,
-            title: "Marketplace pickup ready",
-            message: `${fulfillment.sellerName} marked order ${order.orderNumber} ready for pickup.`,
-            href: "/dashboard/admin/marketplace?tab=fulfillment",
-            data: {
-                orderId: String(order._id),
-                orderNumber: order.orderNumber,
-                sellerId: fulfillment.sellerId,
-            },
-        }))
+    return new Set(
+      products.map(
+        (product) =>
+          String(
+            product._id
+          )
+      )
     );
+  };
+
+const getCommissionRate =
+  () => {
+    const value =
+      Number(
+        process.env
+          .MARKETPLACE_COMMISSION_RATE ||
+          5
+      );
+
+    if (
+      !Number.isFinite(
+        value
+      ) ||
+      value < 0
+    ) {
+      return 5;
+    }
+
+    return value;
+  };
+
+const getDeliveryFee =
+  () => {
+    const value =
+      Number(
+        process.env
+          .MARKETPLACE_DELIVERY_FEE ||
+          120
+      );
+
+    if (
+      !Number.isFinite(
+        value
+      ) ||
+      value < 0
+    ) {
+      return 120;
+    }
+
+    return value;
+  };
+
+const getCheckoutConfig =
+  () => ({
+    deliveryFee:
+      getDeliveryFee(),
+  });
+
+const generateOrderNumber =
+  () => {
+    const timestamp =
+      Date.now()
+        .toString()
+        .slice(-8);
+
+    const random =
+      Math.floor(
+        1000 +
+          Math.random() *
+            9000
+      );
+
+    return `AN-${timestamp}-${random}`;
+  };
+
+const toBuyerOrderView = (
+  order: any
+) => {
+  const plain =
+    typeof order?.toObject ===
+    "function"
+      ? order.toObject()
+      : order;
+
+  return {
+    ...plain,
+
+    items: (
+      plain.items || []
+    ).map((item: any) => {
+      const {
+        sellerEmail:
+          _sellerEmail,
+        ...safeItem
+      } = item;
+
+      return safeItem;
+    }),
+
+    fulfillments: (
+      plain.fulfillments ||
+      []
+    ).map(
+      (
+        fulfillment: any
+      ) => {
+        const {
+          sellerEmail:
+            _sellerEmail,
+          ...safeFulfillment
+        } = fulfillment;
+
+        return {
+          ...safeFulfillment,
+
+          items: (
+            fulfillment.items ||
+            []
+          ).map(
+            (item: any) => {
+              const {
+                sellerEmail:
+                  _itemSellerEmail,
+                ...safeItem
+              } = item;
+
+              return safeItem;
+            }
+          ),
+        };
+      }
+    ),
+  };
 };
 
-const createOrderInDB = async (
+const matchesSellerIdentity =
+  (
+    fulfillment: any,
+    sellerId: string,
+    sellerEmail: string
+  ) => {
+    const fulfillmentSellerId =
+      String(
+        fulfillment?.sellerId ||
+          ""
+      );
+
+    if (
+      fulfillmentSellerId
+    ) {
+      return (
+        fulfillmentSellerId ===
+        sellerId
+      );
+    }
+
+    return (
+      String(
+        fulfillment?.sellerEmail ||
+          ""
+      )
+        .trim()
+        .toLowerCase() ===
+      sellerEmail
+        .trim()
+        .toLowerCase()
+    );
+  };
+
+const sellerOrderIdentityQuery =
+  (
+    sellerId: string,
+    sellerEmail: string
+  ) => {
+    const normalizedEmail =
+      normalizeEmail(
+        sellerEmail
+      );
+
+    return {
+      $or: [
+        {
+          "fulfillments.sellerId":
+            sellerId,
+        },
+
+        {
+          "fulfillments.items.sellerId":
+            sellerId,
+        },
+
+        {
+          fulfillments: {
+            $elemMatch: {
+              $and: [
+                {
+                  $or: [
+                    {
+                      sellerId: {
+                        $exists:
+                          false,
+                      },
+                    },
+
+                    {
+                      sellerId:
+                        null,
+                    },
+
+                    {
+                      sellerId:
+                        "",
+                    },
+
+                    {
+                      sellerId:
+                        "unknown-seller",
+                    },
+                  ],
+                },
+
+                {
+                  sellerEmail:
+                    normalizedEmail,
+                },
+              ],
+            },
+          },
+        },
+
+        {
+          fulfillments: {
+            $elemMatch: {
+              items: {
+                $elemMatch: {
+                  $and: [
+                    {
+                      $or: [
+                        {
+                          sellerId:
+                            {
+                              $exists:
+                                false,
+                            },
+                        },
+
+                        {
+                          sellerId:
+                            null,
+                        },
+
+                        {
+                          sellerId:
+                            "",
+                        },
+
+                        {
+                          sellerId:
+                            "unknown-seller",
+                        },
+                      ],
+                    },
+
+                    {
+                      sellerEmail:
+                        normalizedEmail,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ],
+    };
+  };
+
+const itemBelongsToSeller =
+  (
+    item: any,
+    sellerId: string,
+    sellerEmail: string,
+    ownedProductIds?: Set<string>
+  ) => {
+    const productId =
+      String(
+        item?.productId ||
+          ""
+      );
+
+    if (
+      ownedProductIds?.has(
+        productId
+      )
+    ) {
+      return true;
+    }
+
+    const itemSellerId =
+      String(
+        item?.sellerId ||
+          ""
+      ).trim();
+
+    if (
+      itemSellerId &&
+      itemSellerId !==
+        "unknown-seller"
+    ) {
+      return (
+        itemSellerId ===
+        sellerId
+      );
+    }
+
+    return (
+      normalizeEmail(
+        item?.sellerEmail
+      ) ===
+      normalizeEmail(
+        sellerEmail
+      )
+    );
+  };
+
+const toSellerOrderView =
+  (
+    order: any,
+    sellerId: string,
+    sellerEmail: string,
+    ownedProductIds?: Set<string>
+  ) => {
+    const plain =
+      typeof order?.toObject ===
+      "function"
+        ? order.toObject()
+        : order;
+
+    const sellerParts = (
+      plain.fulfillments ||
+      []
+    )
+      .map(
+        (
+          fulfillment: any
+        ) => {
+          const ownedItems =
+            (
+              fulfillment.items ||
+              []
+            ).filter(
+              (item: any) =>
+                itemBelongsToSeller(
+                  item,
+                  sellerId,
+                  sellerEmail,
+                  ownedProductIds
+                )
+            );
+
+          if (
+            !ownedItems.length
+          ) {
+            return null;
+          }
+
+          return {
+            fulfillment,
+            ownedItems,
+          };
+        }
+      )
+      .filter(Boolean) as {
+      fulfillment: any;
+      ownedItems: any[];
+    }[];
+
+    if (!sellerParts.length) {
+      return null;
+    }
+
+    const safeItems =
+      sellerParts.flatMap(
+        ({
+          ownedItems,
+        }) =>
+          ownedItems.map(
+            (item: any) => ({
+              productId:
+                item.productId,
+
+              title:
+                item.title,
+
+              image:
+                item.image,
+
+              quantity:
+                item.quantity,
+
+              unit:
+                item.unit,
+
+              price:
+                item.price,
+
+              subtotal:
+                item.subtotal,
+            })
+          )
+      );
+
+    const subtotal =
+      Number(
+        safeItems
+          .reduce(
+            (
+              sum,
+              item
+            ) =>
+              sum +
+              Number(
+                item.subtotal ||
+                  0
+              ),
+            0
+          )
+          .toFixed(2)
+      );
+
+    const firstFulfillment =
+      sellerParts[0]
+        .fulfillment;
+
+    const commissionRate =
+      Number(
+        firstFulfillment.commissionRate ||
+          0
+      );
+
+    const commissionAmount =
+      Number(
+        (
+          (subtotal *
+            commissionRate) /
+          100
+        ).toFixed(2)
+      );
+
+    const sellerPayout =
+      Number(
+        (
+          subtotal -
+          commissionAmount
+        ).toFixed(2)
+      );
+
+    return {
+      _id: String(
+        plain._id
+      ),
+
+      orderNumber:
+        plain.orderNumber,
+
+      customerName:
+        plain.customerName,
+
+      deliveryDistrict:
+        plain
+          .shippingAddress
+          ?.district || "",
+
+      paymentMethod:
+        plain.paymentMethod,
+
+      paymentStatus:
+        plain.paymentStatus,
+
+      status:
+        plain.status,
+
+      createdAt:
+        plain.createdAt,
+
+      updatedAt:
+        plain.updatedAt,
+
+      fulfillment: {
+        sellerId,
+
+        sellerName:
+          firstFulfillment.sellerName,
+
+        items:
+          safeItems,
+
+        subtotal,
+
+        commissionRate,
+
+        commissionAmount,
+
+        sellerPayout,
+
+        status:
+          firstFulfillment.status,
+
+        pickupAddress:
+          firstFulfillment.pickupAddress,
+
+        deliveryPartner:
+          firstFulfillment.deliveryPartner,
+      },
+    };
+  };
+
+const notifyNewOrderSellers =
+  async (
+    order: any
+  ) => {
+    const notifications =
+      (
+        order.fulfillments ||
+        []
+      )
+        .filter(
+          (
+            fulfillment: any
+          ) =>
+            fulfillment.sellerId
+        )
+        .map(
+          (
+            fulfillment: any
+          ) => ({
+            userId:
+              String(
+                fulfillment.sellerId
+              ),
+
+            type:
+              "MARKETPLACE_NEW_ORDER" as const,
+
+            title:
+              "New marketplace order",
+
+            message: `You received a new order (${order.orderNumber}) for ${fulfillment.items.length} item${fulfillment.items.length === 1 ? "" : "s"}.`,
+
+            href:
+              "/seller-orders",
+
+            data: {
+              orderId:
+                String(
+                  order._id
+                ),
+
+              orderNumber:
+                order.orderNumber,
+            },
+          })
+        );
+
+    if (
+      notifications.length
+    ) {
+      await NotificationService.createManyNotifications(
+        notifications
+      );
+    }
+  };
+
+const notifyAdminsReadyForPickup =
+  async (
+    order: any,
+    fulfillment: any
+  ) => {
+    const admins =
+      await getAuthUserCollection()
+        .find({
+          role:
+            "ADMIN",
+
+          status: {
+            $nin: [
+              "BLOCKED",
+              "REJECTED",
+              "PENDING",
+            ],
+          },
+        })
+        .project({
+          _id: 1,
+        })
+        .toArray();
+
+    if (!admins.length) {
+      return;
+    }
+
+    await NotificationService.createManyNotifications(
+      admins.map(
+        (admin) => ({
+          userId:
+            String(
+              admin._id
+            ),
+
+          type:
+            "MARKETPLACE_READY_FOR_PICKUP" as const,
+
+          title:
+            "Marketplace pickup ready",
+
+          message: `${fulfillment.sellerName} marked order ${order.orderNumber} ready for pickup.`,
+
+          href:
+            "/dashboard/admin/marketplace?tab=fulfillment",
+
+          data: {
+            orderId:
+              String(
+                order._id
+              ),
+
+            orderNumber:
+              order.orderNumber,
+
+            sellerId:
+              fulfillment.sellerId,
+          },
+        })
+      )
+    );
+  };
+
+const createOrderInDB =
+  async (
     customer: {
-        id: string;
-        email: string;
-        name?: string;
+      id: string;
+      email: string;
+      name?: string;
     },
 
     payload: {
-        items: {
-            productId: string;
-            quantity: number;
-        }[];
+      items: {
+        productId: string;
+        quantity: number;
+      }[];
 
-        shippingAddress: IShippingAddress;
+      shippingAddress:
+        IShippingAddress;
 
-        paymentMethod: "cod" | "card";
+      paymentMethod:
+        | "cod"
+        | "card";
 
-        notes?: string;
+      notes?: string;
     }
-) => {
+  ) => {
     const productIds =
-        payload.items.map(
-            (item) => item.productId
-        );
+      payload.items.map(
+        (item) =>
+          item.productId
+      );
 
     const uniqueProductIds =
-        [...new Set(productIds)];
+      [
+        ...new Set(
+          productIds
+        ),
+      ];
 
-    for (const id of uniqueProductIds) {
-        if (!isValidObjectId(id)) {
-            throw new AppError(
-                400,
-                `Invalid product ID: ${id}`
-            );
-        }
+    for (
+      const id of
+      uniqueProductIds
+    ) {
+      if (
+        !isValidObjectId(
+          id
+        )
+      ) {
+        throw new AppError(
+          400,
+          `Invalid product ID: ${id}`
+        );
+      }
     }
 
     const products =
-        await Product.find({
-            _id: {
-                $in: uniqueProductIds,
-            },
+      await Product.find({
+        _id: {
+          $in:
+            uniqueProductIds,
+        },
 
-            isDeleted: {
-                $ne: true,
-            },
+        isDeleted: {
+          $ne: true,
+        },
 
-            status: "available",
-        });
+        status:
+          "available",
+      });
 
     if (
-        products.length !==
-        uniqueProductIds.length
+      products.length !==
+      uniqueProductIds.length
     ) {
-        throw new AppError(
-            400,
-            "One or more products are unavailable"
-        );
+      throw new AppError(
+        400,
+        "One or more products are unavailable"
+      );
     }
 
     const productMap =
-        new Map(
-            products.map(
-                (product) => [
-                    String(product._id),
-                    product,
-                ]
-            )
-        );
+      new Map(
+        products.map(
+          (product) => [
+            String(
+              product._id
+            ),
+            product,
+          ]
+        )
+      );
 
     const commissionRate =
-        getCommissionRate();
+      getCommissionRate();
 
-    const orderItems: IOrderItem[] = [];
+    const orderItems:
+      IOrderItem[] = [];
 
-    for (const cartItem of payload.items) {
-        const product =
-            productMap.get(
-                cartItem.productId
-            );
+    const normalizedCustomerEmail =
+      normalizeEmail(
+        customer.email
+      );
 
-        if (!product) {
-            throw new AppError(
-                404,
-                "Product not found"
-            );
+    const legacySellerEmails =
+      Array.from(
+        new Set(
+          products
+            .filter(
+              (product) =>
+                !String(
+                  product.sellerId ||
+                    ""
+                ).trim()
+            )
+            .map((product) =>
+              normalizeEmail(
+                product.sellerEmail
+              )
+            )
+            .filter(Boolean)
+        )
+      );
+
+    const legacySellerMap =
+      new Map<
+        string,
+        {
+          id: string;
+          name?: string;
         }
+      >();
+
+    if (
+      legacySellerEmails.length
+    ) {
+      const legacyUsers =
+        await getAuthUserCollection()
+          .find({
+            email: {
+              $in:
+                legacySellerEmails,
+            },
+          })
+          .project({
+            _id: 1,
+            email: 1,
+            name: 1,
+          })
+          .toArray();
+
+      legacyUsers.forEach(
+        (user: any) => {
+          legacySellerMap.set(
+            normalizeEmail(
+              user.email
+            ),
+            {
+              id: String(
+                user._id
+              ),
+
+              name:
+                typeof user.name ===
+                "string"
+                  ? user.name
+                  : undefined,
+            }
+          );
+        }
+      );
+    }
+
+    const sellerBackfills: {
+      productId: string;
+      sellerId: string;
+    }[] = [];
+
+    for (
+      const cartItem of
+      payload.items
+    ) {
+      const product =
+        productMap.get(
+          cartItem.productId
+        );
+
+      if (!product) {
+        throw new AppError(
+          404,
+          "Product not found"
+        );
+      }
+
+      const productSellerEmail =
+        normalizeEmail(
+          product.sellerEmail
+        );
+
+      let resolvedSellerId =
+        String(
+          product.sellerId ||
+            ""
+        ).trim();
+
+      if (
+        !resolvedSellerId &&
+        productSellerEmail
+      ) {
+        const legacySeller =
+          legacySellerMap.get(
+            productSellerEmail
+          );
 
         if (
-            cartItem.quantity >
-            product.quantity
+          legacySeller?.id
         ) {
-            throw new AppError(
-                400,
-                `${product.title} has only ${product.quantity} ${product.unit} available`
-            );
+          resolvedSellerId =
+            legacySeller.id;
+
+          sellerBackfills.push(
+            {
+              productId:
+                String(
+                  product._id
+                ),
+
+              sellerId:
+                legacySeller.id,
+            }
+          );
         }
+      }
 
-        const price =
-            Number(product.price);
+      if (
+        !resolvedSellerId
+      ) {
+        throw new AppError(
+          409,
+          `The seller account for "${product.title}" could not be verified. Please remove this item from the cart and contact AgriNova support.`
+        );
+      }
 
-        const subtotal =
-            price * cartItem.quantity;
+      const isOwnProduct =
+        resolvedSellerId ===
+          customer.id ||
+        Boolean(
+          productSellerEmail &&
+            productSellerEmail ===
+              normalizedCustomerEmail
+        );
 
-        orderItems.push({
-            productId:
-                String(product._id),
+      if (isOwnProduct) {
+        throw new AppError(
+          400,
+          `You cannot buy your own marketplace listing: ${product.title}`
+        );
+      }
 
-            title:
-                product.title,
+      if (
+        cartItem.quantity >
+        product.quantity
+      ) {
+        throw new AppError(
+          400,
+          `${product.title} has only ${product.quantity} ${product.unit} available`
+        );
+      }
 
-            image:
-                product.images?.[0],
+      const price =
+        Number(
+          product.price
+        );
 
-            sellerId:
-                product.sellerId ||
-                "unknown-seller",
+      const subtotal =
+        price *
+        cartItem.quantity;
 
-            sellerName:
-                product.sellerName ||
-                "AgriNova Seller",
+      orderItems.push({
+        productId:
+          String(
+            product._id
+          ),
 
-            sellerEmail:
-                product.sellerEmail ||
-                "",
+        title:
+          product.title,
 
-            quantity:
-                cartItem.quantity,
+        image:
+          product.images?.[0],
 
-            unit:
-                product.unit,
+        sellerId:
+          resolvedSellerId,
 
-            price,
+        sellerName:
+          product.sellerName ||
+          "AgriNova Seller",
 
-            subtotal,
-        });
+        sellerEmail:
+          product.sellerEmail ||
+          "",
+
+        quantity:
+          cartItem.quantity,
+
+        unit:
+          product.unit,
+
+        price,
+
+        subtotal,
+      });
+    }
+
+    if (
+      sellerBackfills.length
+    ) {
+      await Product.bulkWrite(
+        sellerBackfills.map(
+          ({
+            productId,
+            sellerId,
+          }) => ({
+            updateOne: {
+              filter: {
+                _id:
+                  productId,
+
+                $or: [
+                  {
+                    sellerId: {
+                      $exists:
+                        false,
+                    },
+                  },
+
+                  {
+                    sellerId:
+                      null,
+                  },
+
+                  {
+                    sellerId:
+                      "",
+                  },
+                ],
+              },
+
+              update: {
+                $set: {
+                  sellerId,
+                },
+              },
+            },
+          })
+        )
+      );
     }
 
     const grouped =
-        new Map<
-            string,
-            IOrderFulfillment
-        >();
+      new Map<
+        string,
+        IOrderFulfillment
+      >();
 
-    for (const item of orderItems) {
-        const sellerKey =
-            item.sellerId?.trim();
+    for (
+      const item of
+      orderItems
+    ) {
+      const sellerKey =
+        item.sellerId?.trim();
 
-        if (!sellerKey) {
-            throw new AppError(
-                400,
-                `Product "${item.title}" does not have a valid seller`
-            );
-        }
-
-        const existing =
-            grouped.get(
-                sellerKey
-            );
-
-        if (existing) {
-            existing.items.push(
-                item
-            );
-
-            existing.subtotal =
-                Number(
-                    (
-                        existing.subtotal +
-                        item.subtotal
-                    ).toFixed(2)
-                );
-
-            continue;
-        }
-
-        const sourceProduct = productMap.get(item.productId);
-
-        grouped.set(
-            sellerKey,
-            {
-                sellerId:
-                    sellerKey,
-
-                sellerName:
-                    item.sellerName,
-
-                sellerEmail:
-                    item.sellerEmail
-                        .trim()
-                        .toLowerCase(),
-
-                items: [item],
-
-                subtotal:
-                    Number(
-                        item.subtotal.toFixed(2)
-                    ),
-
-                commissionRate,
-
-                commissionAmount:
-                    0,
-
-                sellerPayout:
-                    0,
-
-                status:
-                    "pending",
-
-                pickupAddress:
-                    [
-                        sourceProduct?.location,
-                        sourceProduct?.upazila,
-                        sourceProduct?.district,
-                        sourceProduct?.division,
-                    ]
-                        .filter(Boolean)
-                        .join(", ") || undefined,
-            }
+      if (!sellerKey) {
+        throw new AppError(
+          400,
+          `Product "${item.title}" does not have a valid seller`
         );
+      }
+
+      const existing =
+        grouped.get(
+          sellerKey
+        );
+
+      if (existing) {
+        existing.items.push(
+          item
+        );
+
+        existing.subtotal =
+          Number(
+            (
+              existing.subtotal +
+              item.subtotal
+            ).toFixed(2)
+          );
+
+        continue;
+      }
+
+      const sourceProduct =
+        productMap.get(
+          item.productId
+        );
+
+      grouped.set(
+        sellerKey,
+        {
+          sellerId:
+            sellerKey,
+
+          sellerName:
+            item.sellerName,
+
+          sellerEmail:
+            item.sellerEmail
+              .trim()
+              .toLowerCase(),
+
+          items: [
+            item,
+          ],
+
+          subtotal:
+            Number(
+              item.subtotal.toFixed(
+                2
+              )
+            ),
+
+          commissionRate,
+
+          commissionAmount:
+            0,
+
+          sellerPayout:
+            0,
+
+          status:
+            "pending",
+
+          pickupAddress:
+            [
+              sourceProduct?.location,
+              sourceProduct?.upazila,
+              sourceProduct?.district,
+              sourceProduct?.division,
+            ]
+              .filter(
+                Boolean
+              )
+              .join(", ") ||
+            undefined,
+        }
+      );
     }
 
     const fulfillments =
-        [...grouped.values()];
+      [
+        ...grouped.values(),
+      ];
 
     let subtotal = 0;
+    let commissionAmount =
+      0;
+    let sellerPayoutAmount =
+      0;
 
-    let commissionAmount = 0;
+    for (
+      const fulfillment of
+      fulfillments
+    ) {
+      const commission =
+        Number(
+          (
+            (fulfillment.subtotal *
+              commissionRate) /
+            100
+          ).toFixed(2)
+        );
 
-    let sellerPayoutAmount = 0;
+      const payout =
+        Number(
+          (
+            fulfillment.subtotal -
+            commission
+          ).toFixed(2)
+        );
 
-    for (const fulfillment of fulfillments) {
-        const commission =
-            Number(
-                (
-                    fulfillment.subtotal *
-                    commissionRate /
-                    100
-                ).toFixed(2)
-            );
+      fulfillment.commissionAmount =
+        commission;
 
-        const payout =
-            Number(
-                (
-                    fulfillment.subtotal -
-                    commission
-                ).toFixed(2)
-            );
+      fulfillment.sellerPayout =
+        payout;
 
-        fulfillment.commissionAmount =
-            commission;
+      subtotal +=
+        fulfillment.subtotal;
 
-        fulfillment.sellerPayout =
-            payout;
+      commissionAmount +=
+        commission;
 
-        subtotal +=
-            fulfillment.subtotal;
-
-        commissionAmount +=
-            commission;
-
-        sellerPayoutAmount +=
-            payout;
+      sellerPayoutAmount +=
+        payout;
     }
 
     const deliveryFee =
-        getDeliveryFee();
+      getDeliveryFee();
 
     const totalAmount =
-        Number(
-            (
-                subtotal +
-                deliveryFee
-            ).toFixed(2)
-        );
+      Number(
+        (
+          subtotal +
+          deliveryFee
+        ).toFixed(2)
+      );
 
     const session =
-        await Product.startSession();
+      await Product.startSession();
 
     try {
-        let createdOrder: any;
+      let createdOrder: any;
 
-        await session.withTransaction(
-            async () => {
-                for (const cartItem of payload.items) {
-                    const updated =
-                        await Product.findOneAndUpdate(
-                            {
-                                _id:
-                                    cartItem.productId,
+      await session.withTransaction(
+        async () => {
+          for (
+            const cartItem of
+            payload.items
+          ) {
+            const updated =
+              await Product.findOneAndUpdate(
+                {
+                  _id:
+                    cartItem.productId,
 
-                                isDeleted: {
-                                    $ne: true,
-                                },
+                  isDeleted: {
+                    $ne: true,
+                  },
 
-                                status:
-                                    "available",
+                  status:
+                    "available",
 
-                                quantity: {
-                                    $gte:
-                                        cartItem.quantity,
-                                },
-                            },
+                  quantity: {
+                    $gte:
+                      cartItem.quantity,
+                  },
+                },
 
-                            {
-                                $inc: {
-                                    quantity:
-                                        -cartItem.quantity,
-                                },
-                            },
+                {
+                  $inc: {
+                    quantity:
+                      -cartItem.quantity,
+                  },
+                },
 
-                            {
-                                new: true,
+                {
+                  new: true,
+                  session,
 
-                                session,
-
-                                runValidators:
-                                    true,
-                            }
-                        );
-
-                    if (!updated) {
-                        throw new AppError(
-                            409,
-                            "Product stock changed. Please refresh your cart and try again."
-                        );
-                    }
-
-                    if (
-                        Number(
-                            updated.quantity
-                        ) <= 0
-                    ) {
-                        await Product.updateOne(
-                            {
-                                _id:
-                                    updated._id,
-                            },
-                            {
-                                $set: {
-                                    status:
-                                        "out_of_stock",
-                                },
-                            },
-                            {
-                                session,
-                            }
-                        );
-                    }
+                  runValidators:
+                    true,
                 }
+              );
 
-                const created =
-                    await Order.create(
-                        [
-                            {
-                                orderNumber:
-                                    generateOrderNumber(),
-
-                                customerId:
-                                    customer.id,
-
-                                customerName:
-                                    customer.name ||
-                                    "Customer",
-
-                                customerEmail:
-                                    customer.email
-                                        .trim()
-                                        .toLowerCase(),
-
-                                items:
-                                    orderItems,
-
-                                fulfillments,
-
-                                shippingAddress:
-                                    payload.shippingAddress,
-
-                                subtotal,
-
-                                deliveryFee,
-
-                                commissionAmount,
-
-                                sellerPayoutAmount,
-
-                                totalAmount,
-
-                                status:
-                                    "pending",
-
-                                paymentMethod:
-                                    payload.paymentMethod,
-
-                                paymentStatus: "pending",
-
-                                notes:
-                                    payload.notes,
-                            },
-                        ],
-                        {
-                            session,
-                        }
-                    );
-
-                createdOrder =
-                    created[0];
+            if (!updated) {
+              throw new AppError(
+                409,
+                "Product stock changed. Please refresh your cart and try again."
+              );
             }
-        );
 
-        if (createdOrder && createdOrder.paymentMethod === "cod") {
-            await notifyNewOrderSellers(createdOrder);
+            if (
+              Number(
+                updated.quantity
+              ) <= 0
+            ) {
+              await Product.updateOne(
+                {
+                  _id:
+                    updated._id,
+                },
+
+                {
+                  $set: {
+                    status:
+                      "out_of_stock",
+                  },
+                },
+
+                {
+                  session,
+                }
+              );
+            }
+          }
+
+          const created =
+            await Order.create(
+              [
+                {
+                  orderNumber:
+                    generateOrderNumber(),
+
+                  customerId:
+                    customer.id,
+
+                  customerName:
+                    customer.name ||
+                    "Customer",
+
+                  customerEmail:
+                    customer.email
+                      .trim()
+                      .toLowerCase(),
+
+                  items:
+                    orderItems,
+
+                  fulfillments,
+
+                  shippingAddress:
+                    payload.shippingAddress,
+
+                  subtotal,
+
+                  deliveryFee,
+
+                  commissionAmount,
+
+                  sellerPayoutAmount,
+
+                  totalAmount,
+
+                  status:
+                    "pending",
+
+                  paymentMethod:
+                    payload.paymentMethod,
+
+                  paymentStatus:
+                    "pending",
+
+                  notes:
+                    payload.notes,
+                },
+              ],
+              {
+                session,
+              }
+            );
+
+          createdOrder =
+            created[0];
         }
+      );
 
-        return createdOrder;
+      if (
+        createdOrder &&
+        createdOrder.paymentMethod ===
+          "cod"
+      ) {
+        await notifyNewOrderSellers(
+          createdOrder
+        );
+      }
+
+      return createdOrder;
     } finally {
-        await session.endSession();
+      await session.endSession();
     }
-};
+  };
 
 const getMyOrdersFromDB =
-    async (
-        customerId: string
-    ) => {
-        return Order.find({
-            customerId,
+  async (
+    customerId: string,
+
+    query: {
+      page?: string;
+      limit?: string;
+    } = {}
+  ) => {
+    const page =
+      Math.max(
+        Number(
+          query.page
+        ) || 1,
+        1
+      );
+
+    const limit =
+      Math.min(
+        Math.max(
+          Number(
+            query.limit
+          ) || 10,
+          1
+        ),
+        50
+      );
+
+    const skip =
+      (page - 1) *
+      limit;
+
+    const [
+      orders,
+      total,
+    ] =
+      await Promise.all([
+        Order.find({
+          customerId,
         })
-            .sort({
-                createdAt: -1,
-            })
-            .lean();
+          .sort({
+            createdAt: -1,
+          })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+
+        Order.countDocuments({
+          customerId,
+        }),
+      ]);
+
+    return {
+      meta: {
+        page,
+        limit,
+        total,
+
+        totalPages:
+          Math.max(
+            Math.ceil(
+              total / limit
+            ),
+            1
+          ),
+      },
+
+      data:
+        orders.map(
+          toBuyerOrderView
+        ),
     };
+  };
 
 const getMyOrderByIdFromDB =
-    async (
-        orderId: string,
-        customerId: string
-    ) => {
-        if (
-            !isValidObjectId(orderId)
-        ) {
-            throw new AppError(
-                400,
-                "Invalid order ID"
-            );
-        }
+  async (
+    orderId: string,
+    customerId: string
+  ) => {
+    if (
+      !isValidObjectId(
+        orderId
+      )
+    ) {
+      throw new AppError(
+        400,
+        "Invalid order ID"
+      );
+    }
 
-        const order =
-            await Order.findOne({
-                _id: orderId,
+    const order =
+      await Order.findOne({
+        _id:
+          orderId,
 
-                customerId,
-            }).lean();
+        customerId,
+      }).lean();
 
-        if (!order) {
-            throw new AppError(
-                404,
-                "Order not found"
-            );
-        }
+    if (!order) {
+      throw new AppError(
+        404,
+        "Order not found"
+      );
+    }
 
-        return order;
-    };
+    return toBuyerOrderView(
+      order
+    );
+  };
 
 const getSellerOrdersFromDB =
-    async (
-        sellerId: string,
-        sellerEmail: string
-    ) => {
-        const normalizedEmail =
-            sellerEmail
-                .trim()
-                .toLowerCase();
+  async (
+    sellerId: string,
+    sellerEmail: string
+  ) => {
+    const normalizedEmail =
+      sellerEmail
+        .trim()
+        .toLowerCase();
 
-        const orders =
-            await Order.find({
-                $and: [
-                    {
-                        $or: [
-                            { "fulfillments.sellerId": sellerId },
-                            { "fulfillments.sellerEmail": normalizedEmail },
-                        ],
-                    },
-                    {
-                        $or: [
-                            { paymentMethod: "cod" },
-                            { paymentMethod: "card", paymentStatus: "paid" },
-                        ],
-                    },
-                ],
-            })
-                .sort({
-                    createdAt: -1,
-                })
-                .lean();
+    const orders =
+      await Order.find({
+        $and: [
+          sellerOrderIdentityQuery(
+            sellerId,
+            normalizedEmail
+          ),
 
-        return orders.map((order) =>
-            toSellerOrderView(order, sellerId, normalizedEmail)
-        );
-    };
+          {
+            $or: [
+              {
+                paymentMethod:
+                  "cod",
+              },
+
+              {
+                paymentMethod:
+                  "card",
+
+                paymentStatus:
+                  "paid",
+              },
+            ],
+          },
+        ],
+      })
+        .sort({
+          createdAt: -1,
+        })
+        .lean();
+
+    const ownedProductIds =
+      await getOwnedProductIds(
+        orders,
+        sellerId,
+        normalizedEmail
+      );
+
+    return orders
+      .map((order) =>
+        toSellerOrderView(
+          order,
+          sellerId,
+          normalizedEmail,
+          ownedProductIds
+        )
+      )
+      .filter(Boolean);
+  };
 
 const updateSellerFulfillment =
-    async (
-        orderId: string,
+  async (
+    orderId: string,
+    sellerId: string,
+    sellerEmail: string,
+    status: any
+  ) => {
+    const SELLER_ALLOWED_STATUSES =
+      [
+        "confirmed",
+        "processing",
+        "ready_for_pickup",
+      ] as const;
 
-        sellerId: string,
+    if (
+      !SELLER_ALLOWED_STATUSES.includes(
+        status
+      )
+    ) {
+      throw new AppError(
+        400,
+        "Seller can only update fulfillment to confirmed, processing, or ready_for_pickup"
+      );
+    }
 
-        sellerEmail: string,
+    if (
+      !isValidObjectId(
+        orderId
+      )
+    ) {
+      throw new AppError(
+        400,
+        "Invalid order ID"
+      );
+    }
 
-        status: any,
+    const normalizedEmail =
+      sellerEmail
+        .trim()
+        .toLowerCase();
 
-    ) => {
-        const SELLER_ALLOWED_STATUSES = [
-            "confirmed",
-            "processing",
-            "ready_for_pickup",
-        ] as const;
+    const order =
+      await Order.findOne({
+        _id:
+          orderId,
 
-        if (
-            !SELLER_ALLOWED_STATUSES.includes(
-                status
-            )
-        ) {
-            throw new AppError(
-                400,
-                "Seller can only update fulfillment to confirmed, processing, or ready_for_pickup"
-            );
-        }
+        $and: [
+          sellerOrderIdentityQuery(
+            sellerId,
+            normalizedEmail
+          ),
 
-        if (
-            !isValidObjectId(
-                orderId
-            )
-        ) {
-            throw new AppError(
-                400,
-                "Invalid order ID"
-            );
-        }
+          {
+            $or: [
+              {
+                paymentMethod:
+                  "cod",
+              },
 
-        const normalizedEmail =
-            sellerEmail
-                .trim()
-                .toLowerCase();
+              {
+                paymentMethod:
+                  "card",
 
-        const order =
-            await Order.findOne({
-                _id: orderId,
-                $and: [
-                    {
-                        $or: [
-                            { "fulfillments.sellerId": sellerId },
-                            { "fulfillments.sellerEmail": normalizedEmail },
-                        ],
-                    },
-                    {
-                        $or: [
-                            { paymentMethod: "cod" },
-                            { paymentMethod: "card", paymentStatus: "paid" },
-                        ],
-                    },
-                ],
-            });
-
-        if (!order) {
-            throw new AppError(
-                404,
-                "Order not found"
-            );
-        }
-
-        /**
-         * Find ONLY this seller's
-         * fulfillment.
-         */
-        const fulfillment =
-            order.fulfillments.find(
-                (item) =>
-                    item.sellerId ===
-                    sellerId ||
-                    item.sellerEmail ===
-                    normalizedEmail
-            );
-
-        if (!fulfillment) {
-            throw new AppError(
-                403,
-                "You are not a seller in this order"
-            );
-        }
-
-        /**
-         * Seller can update only
-         * their own fulfillment.
-         */
-        const currentStatus =
-            fulfillment.status;
-
-        const allowedNextStatuses: Record<
-            string,
-            string[]
-        > = {
-            pending: [
-                "confirmed",
+                paymentStatus:
+                  "paid",
+              },
             ],
+          },
+        ],
+      });
 
-            confirmed: [
-                "processing",
-            ],
+    if (!order) {
+      throw new AppError(
+        404,
+        "Order not found"
+      );
+    }
 
-            processing: [
-                "ready_for_pickup",
-            ],
+    const ownedProductIds =
+      await getOwnedProductIds(
+        [
+          order.toObject(),
+        ],
+        sellerId,
+        normalizedEmail
+      );
 
-            ready_for_pickup: [],
-        };
+    const fulfillment =
+      order.fulfillments.find(
+        (item: any) =>
+          matchesSellerIdentity(
+            item,
+            sellerId,
+            normalizedEmail
+          ) ||
+          (
+            item.items ||
+            []
+          ).some(
+            (
+              orderItem: any
+            ) =>
+              itemBelongsToSeller(
+                orderItem,
+                sellerId,
+                normalizedEmail,
+                ownedProductIds
+              )
+          )
+      );
 
-        if (
-            !allowedNextStatuses[
-                currentStatus
-            ]?.includes(status)
-        ) {
-            throw new AppError(
-                400,
-                `Invalid status transition: ${currentStatus} → ${status}`
-            );
-        }
-        fulfillment.status =
-            status;
+    if (!fulfillment) {
+      throw new AppError(
+        403,
+        "You are not a seller in this order"
+      );
+    }
 
-/**
-         * Recalculate master order
-         * status from all seller
-         * fulfillments.
-         */
-        const statuses =
-            order.fulfillments.map(
-                (item) =>
-                    item.status
-            );
+    const containsAnotherSellerItem =
+      (
+        fulfillment.items ||
+        []
+      ).some(
+        (
+          orderItem: any
+        ) =>
+          !itemBelongsToSeller(
+            orderItem,
+            sellerId,
+            normalizedEmail,
+            ownedProductIds
+          )
+      );
 
-        const allDelivered =
-            statuses.length > 0 &&
-            statuses.every(
-                (status) =>
-                    status ===
-                    "delivered"
-            );
+    if (
+      containsAnotherSellerItem
+    ) {
+      throw new AppError(
+        409,
+        "This legacy order contains products from multiple sellers in one fulfillment. AgriNova must repair the order before its seller status can be changed."
+      );
+    }
 
-        const anyDelivered =
-            statuses.some(
-                (status) =>
-                    status ===
-                    "delivered"
-            );
+    const currentStatus =
+      fulfillment.status;
 
-        const anyOutForDelivery =
-            statuses.some(
-                (status) =>
-                    status ===
-                    "out_for_delivery"
-            );
+    const allowedNextStatuses: Record<
+      string,
+      string[]
+    > = {
+      pending: [
+        "confirmed",
+      ],
 
-        const anyPickedUp =
-            statuses.some(
-                (status) =>
-                    status ===
-                    "picked_up"
-            );
+      confirmed: [
+        "processing",
+      ],
 
-        const allReadyForPickup =
-            statuses.length > 0 &&
-            statuses.every(
-                (status) =>
-                    status ===
-                    "ready_for_pickup"
-            );
+      processing: [
+        "ready_for_pickup",
+      ],
 
-        const anyReadyForPickup =
-            statuses.some(
-                (status) =>
-                    status ===
-                    "ready_for_pickup"
-            );
-
-        const anyProcessing =
-            statuses.some(
-                (status) =>
-                    status ===
-                    "processing"
-            );
-
-        const anyConfirmed =
-            statuses.some(
-                (status) =>
-                    status ===
-                    "confirmed"
-            );
-
-        /**
-         * Calculate master order status
-         * from all seller fulfillments.
-         *
-         * The master order represents
-         * the overall progress of the
-         * complete customer order.
-         */
-        if (allDelivered) {
-            order.status =
-                "delivered";
-        } else if (
-            anyDelivered
-        ) {
-            order.status =
-                "partially_fulfilled";
-        } else if (
-            anyOutForDelivery
-        ) {
-            order.status =
-                "out_for_delivery";
-        } else if (
-            anyPickedUp
-        ) {
-            order.status =
-                "picked_up";
-        } else if (
-            allReadyForPickup
-        ) {
-            order.status =
-                "ready_for_pickup";
-        } else if (
-            anyReadyForPickup
-        ) {
-            order.status =
-                "partially_fulfilled";
-        } else if (
-            anyProcessing
-        ) {
-            order.status =
-                "processing";
-        } else if (
-            anyConfirmed
-        ) {
-            order.status =
-                "confirmed";
-        } else {
-            order.status =
-                "pending";
-        }
-
-        await order.save();
-
-        if (status === "ready_for_pickup") {
-            await notifyAdminsReadyForPickup(order, fulfillment);
-        }
-
-        return toSellerOrderView(order, sellerId, normalizedEmail);
+      ready_for_pickup:
+        [],
     };
+
+    if (
+      !allowedNextStatuses[
+        currentStatus
+      ]?.includes(status)
+    ) {
+      throw new AppError(
+        400,
+        `Invalid status transition: ${currentStatus} → ${status}`
+      );
+    }
+
+    fulfillment.status =
+      status;
+
+    const statuses =
+      order.fulfillments.map(
+        (item) =>
+          item.status
+      );
+
+    const allDelivered =
+      statuses.length > 0 &&
+      statuses.every(
+        (item) =>
+          item ===
+          "delivered"
+      );
+
+    const anyDelivered =
+      statuses.some(
+        (item) =>
+          item ===
+          "delivered"
+      );
+
+    const anyOutForDelivery =
+      statuses.some(
+        (item) =>
+          item ===
+          "out_for_delivery"
+      );
+
+    const anyPickedUp =
+      statuses.some(
+        (item) =>
+          item ===
+          "picked_up"
+      );
+
+    const allReadyForPickup =
+      statuses.length > 0 &&
+      statuses.every(
+        (item) =>
+          item ===
+          "ready_for_pickup"
+      );
+
+    const anyReadyForPickup =
+      statuses.some(
+        (item) =>
+          item ===
+          "ready_for_pickup"
+      );
+
+    const anyProcessing =
+      statuses.some(
+        (item) =>
+          item ===
+          "processing"
+      );
+
+    const anyConfirmed =
+      statuses.some(
+        (item) =>
+          item ===
+          "confirmed"
+      );
+
+    if (allDelivered) {
+      order.status =
+        "delivered";
+    } else if (
+      anyDelivered
+    ) {
+      order.status =
+        "partially_fulfilled";
+    } else if (
+      anyOutForDelivery
+    ) {
+      order.status =
+        "out_for_delivery";
+    } else if (
+      anyPickedUp
+    ) {
+      order.status =
+        "picked_up";
+    } else if (
+      allReadyForPickup
+    ) {
+      order.status =
+        "ready_for_pickup";
+    } else if (
+      anyReadyForPickup
+    ) {
+      order.status =
+        "partially_fulfilled";
+    } else if (
+      anyProcessing
+    ) {
+      order.status =
+        "processing";
+    } else if (
+      anyConfirmed
+    ) {
+      order.status =
+        "confirmed";
+    } else {
+      order.status =
+        "pending";
+    }
+
+    await order.save();
+
+    if (
+      status ===
+      "ready_for_pickup"
+    ) {
+      await notifyAdminsReadyForPickup(
+        order,
+        fulfillment
+      );
+    }
+
+    return toSellerOrderView(
+      order,
+      sellerId,
+      normalizedEmail,
+      ownedProductIds
+    );
+  };
+
 const updateAdminFulfillment =
-    async (
-        orderId: string,
-        sellerId: string,
-        status: any,
-        deliveryPartner?: {
-            name?: string;
-            phone?: string;
+  async (
+    orderId: string,
+    sellerId: string,
+    status: any,
+
+    deliveryPartner?: {
+      name?: string;
+      phone?: string;
+    }
+  ) => {
+    if (
+      !isValidObjectId(
+        orderId
+      )
+    ) {
+      throw new AppError(
+        400,
+        "Invalid order ID"
+      );
+    }
+
+    const ADMIN_DELIVERY_STATUSES =
+      [
+        "picked_up",
+        "out_for_delivery",
+        "delivered",
+      ] as const;
+
+    if (
+      !ADMIN_DELIVERY_STATUSES.includes(
+        status
+      )
+    ) {
+      throw new AppError(
+        400,
+        "Admin delivery status must be picked_up, out_for_delivery, or delivered"
+      );
+    }
+
+    const order =
+      await Order.findById(
+        orderId
+      );
+
+    if (!order) {
+      throw new AppError(
+        404,
+        "Order not found"
+      );
+    }
+
+    const fulfillment =
+      order.fulfillments.find(
+        (item) =>
+          item.sellerId ===
+          sellerId
+      );
+
+    if (!fulfillment) {
+      throw new AppError(
+        404,
+        "Seller fulfillment not found"
+      );
+    }
+
+    const currentStatus =
+      fulfillment.status;
+
+    const allowedNextStatuses: Record<
+      string,
+      string[]
+    > = {
+      ready_for_pickup: [
+        "picked_up",
+      ],
+
+      picked_up: [
+        "out_for_delivery",
+      ],
+
+      out_for_delivery: [
+        "delivered",
+      ],
+    };
+
+    if (
+      !allowedNextStatuses[
+        currentStatus
+      ]?.includes(status)
+    ) {
+      throw new AppError(
+        400,
+        `Invalid delivery status transition: ${currentStatus} → ${status}`
+      );
+    }
+
+    fulfillment.status =
+      status;
+
+    if (
+      deliveryPartner
+    ) {
+      fulfillment.deliveryPartner =
+        deliveryPartner;
+    }
+
+    const statuses =
+      order.fulfillments.map(
+        (item) =>
+          item.status
+      );
+
+    const allDelivered =
+      statuses.length > 0 &&
+      statuses.every(
+        (item) =>
+          item ===
+          "delivered"
+      );
+
+    const anyDelivered =
+      statuses.some(
+        (item) =>
+          item ===
+          "delivered"
+      );
+
+    const anyOutForDelivery =
+      statuses.some(
+        (item) =>
+          item ===
+          "out_for_delivery"
+      );
+
+    const anyPickedUp =
+      statuses.some(
+        (item) =>
+          item ===
+          "picked_up"
+      );
+
+    const allReadyForPickup =
+      statuses.length > 0 &&
+      statuses.every(
+        (item) =>
+          item ===
+          "ready_for_pickup"
+      );
+
+    const anyReadyForPickup =
+      statuses.some(
+        (item) =>
+          item ===
+          "ready_for_pickup"
+      );
+
+    const anyProcessing =
+      statuses.some(
+        (item) =>
+          item ===
+          "processing"
+      );
+
+    const anyConfirmed =
+      statuses.some(
+        (item) =>
+          item ===
+          "confirmed"
+      );
+
+    if (allDelivered) {
+      order.status =
+        "delivered";
+    } else if (
+      anyDelivered
+    ) {
+      order.status =
+        "partially_fulfilled";
+    } else if (
+      anyOutForDelivery
+    ) {
+      order.status =
+        "out_for_delivery";
+    } else if (
+      anyPickedUp
+    ) {
+      order.status =
+        "picked_up";
+    } else if (
+      allReadyForPickup
+    ) {
+      order.status =
+        "ready_for_pickup";
+    } else if (
+      anyReadyForPickup
+    ) {
+      order.status =
+        "partially_fulfilled";
+    } else if (
+      anyProcessing
+    ) {
+      order.status =
+        "processing";
+    } else if (
+      anyConfirmed
+    ) {
+      order.status =
+        "confirmed";
+    } else {
+      order.status =
+        "pending";
+    }
+
+    await order.save();
+
+    if (
+      status ===
+        "picked_up" &&
+      fulfillment.sellerId
+    ) {
+      await NotificationService.createNotification(
+        {
+          userId:
+            String(
+              fulfillment.sellerId
+            ),
+
+          type:
+            "MARKETPLACE_PICKED_UP",
+
+          title:
+            "Marketplace order collected",
+
+          message: `AgriNova collected your items for order ${order.orderNumber}.`,
+
+          href:
+            "/seller-orders",
+
+          data: {
+            orderId:
+              String(
+                order._id
+              ),
+
+            orderNumber:
+              order.orderNumber,
+          },
         }
-    ) => {
-        if (
-            !isValidObjectId(
-                orderId
-            )
-        ) {
-            throw new AppError(
-                400,
-                "Invalid order ID"
-            );
+      );
+    }
+
+    if (
+      status ===
+      "out_for_delivery"
+    ) {
+      await NotificationService.createNotification(
+        {
+          userId:
+            String(
+              order.customerId
+            ),
+
+          type:
+            "MARKETPLACE_OUT_FOR_DELIVERY",
+
+          title:
+            "Order is out for delivery",
+
+          message: `Order ${order.orderNumber} is on the way to you.`,
+
+          href: `/orders/${order._id}`,
+
+          data: {
+            orderId:
+              String(
+                order._id
+              ),
+
+            orderNumber:
+              order.orderNumber,
+          },
         }
+      );
+    }
 
-        const ADMIN_DELIVERY_STATUSES = [
-            "picked_up",
-            "out_for_delivery",
-            "delivered",
-        ] as const;
+    if (
+      status ===
+      "delivered"
+    ) {
+      await NotificationService.createNotification(
+        {
+          userId:
+            String(
+              order.customerId
+            ),
 
-        if (
-            !ADMIN_DELIVERY_STATUSES.includes(
-                status
-            )
-        ) {
-            throw new AppError(
-                400,
-                "Admin delivery status must be picked_up, out_for_delivery, or delivered"
-            );
+          type:
+            "MARKETPLACE_DELIVERED",
+
+          title:
+            "Order delivered",
+
+          message: `Order ${order.orderNumber} was marked delivered.`,
+
+          href: `/orders/${order._id}`,
+
+          data: {
+            orderId:
+              String(
+                order._id
+              ),
+
+            orderNumber:
+              order.orderNumber,
+          },
         }
+      );
+    }
 
-        const order =
-            await Order.findById(
-                orderId
-            );
+    return order;
+  };
 
-        if (!order) {
-            throw new AppError(
-                404,
-                "Order not found"
-            );
-        }
+const getAllOrdersForAdmin =
+  async (
+    query: Record<
+      string,
+      unknown
+    > = {}
+  ) => {
+    const page =
+      Math.max(
+        Number(
+          query.page
+        ) || 1,
+        1
+      );
 
-        const fulfillment =
-            order.fulfillments.find(
-                (item) =>
-                    item.sellerId ===
-                    sellerId
-            );
+    const limit =
+      Math.min(
+        Math.max(
+          Number(
+            query.limit
+          ) || 20,
+          1
+        ),
+        50
+      );
 
-        if (!fulfillment) {
-            throw new AppError(
-                404,
-                "Seller fulfillment not found"
-            );
-        }
+    const skip =
+      (page - 1) *
+      limit;
 
-        const currentStatus =
-            fulfillment.status;
+    const filter: Record<
+      string,
+      any
+    > = {};
 
-        const allowedNextStatuses: Record<
-            string,
-            string[]
-        > = {
-            ready_for_pickup: [
-                "picked_up",
-            ],
+    if (
+      query.fulfillmentStatus ===
+      "active"
+    ) {
+      filter[
+        "fulfillments.status"
+      ] = {
+        $in: [
+          "ready_for_pickup",
+          "picked_up",
+          "out_for_delivery",
+        ],
+      };
 
-            picked_up: [
-                "out_for_delivery",
-            ],
+      filter.$or = [
+        {
+          paymentMethod:
+            "cod",
+        },
 
-            out_for_delivery: [
-                "delivered",
-            ],
+        {
+          paymentStatus:
+            "paid",
+        },
+      ];
+    }
+
+    if (query.status) {
+      filter.status =
+        String(
+          query.status
+        );
+    }
+
+    if (query.search) {
+      const escaped =
+        String(
+          query.search
+        ).replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&"
+        );
+
+      const rx =
+        new RegExp(
+          escaped,
+          "i"
+        );
+
+      const searchClause =
+        {
+          $or: [
+            {
+              orderNumber:
+                rx,
+            },
+
+            {
+              customerName:
+                rx,
+            },
+
+            {
+              "fulfillments.sellerName":
+                rx,
+            },
+          ],
         };
 
-        if (
-            !allowedNextStatuses[
-                currentStatus
-            ]?.includes(status)
-        ) {
-            throw new AppError(
-                400,
-                `Invalid delivery status transition: ${currentStatus} → ${status}`
-            );
-        }
+      if (filter.$or) {
+        filter.$and = [
+          {
+            $or:
+              filter.$or,
+          },
 
-        fulfillment.status =
-            status;
+          searchClause,
+        ];
 
-        if (
-            deliveryPartner
-        ) {
-            fulfillment.deliveryPartner =
-                deliveryPartner;
-        }
+        delete filter.$or;
+      } else {
+        Object.assign(
+          filter,
+          searchClause
+        );
+      }
+    }
 
-        const statuses =
-            order.fulfillments.map(
-                (item) =>
-                    item.status
-            );
+    const [
+      data,
+      total,
+    ] =
+      await Promise.all([
+        Order.find(
+          filter
+        )
+          .sort({
+            createdAt: -1,
+          })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
 
-        const allDelivered =
-            statuses.length > 0 &&
-            statuses.every(
-                (item) =>
-                    item ===
-                    "delivered"
-            );
+        Order.countDocuments(
+          filter
+        ),
+      ]);
 
-        const anyDelivered =
-            statuses.some(
-                (item) =>
-                    item ===
-                    "delivered"
-            );
+    return {
+      data,
 
-        const anyOutForDelivery =
-            statuses.some(
-                (item) =>
-                    item ===
-                    "out_for_delivery"
-            );
+      meta: {
+        page,
+        limit,
+        total,
 
-        const anyPickedUp =
-            statuses.some(
-                (item) =>
-                    item ===
-                    "picked_up"
-            );
-
-        const allReadyForPickup =
-            statuses.length > 0 &&
-            statuses.every(
-                (item) =>
-                    item ===
-                    "ready_for_pickup"
-            );
-
-        const anyReadyForPickup =
-            statuses.some(
-                (item) =>
-                    item ===
-                    "ready_for_pickup"
-            );
-
-        const anyProcessing =
-            statuses.some(
-                (item) =>
-                    item ===
-                    "processing"
-            );
-
-        const anyConfirmed =
-            statuses.some(
-                (item) =>
-                    item ===
-                    "confirmed"
-            );
-
-        if (allDelivered) {
-            order.status =
-                "delivered";
-        } else if (
-            anyDelivered
-        ) {
-            order.status =
-                "partially_fulfilled";
-        } else if (
-            anyOutForDelivery
-        ) {
-            order.status =
-                "out_for_delivery";
-        } else if (
-            anyPickedUp
-        ) {
-            order.status =
-                "picked_up";
-        } else if (
-            allReadyForPickup
-        ) {
-            order.status =
-                "ready_for_pickup";
-        } else if (
-            anyReadyForPickup
-        ) {
-            order.status =
-                "partially_fulfilled";
-        } else if (
-            anyProcessing
-        ) {
-            order.status =
-                "processing";
-        } else if (
-            anyConfirmed
-        ) {
-            order.status =
-                "confirmed";
-        } else {
-            order.status =
-                "pending";
-        }
-
-        await order.save();
-
-        if (status === "picked_up" && fulfillment.sellerId) {
-            await NotificationService.createNotification({
-                userId: String(fulfillment.sellerId),
-                type: "MARKETPLACE_PICKED_UP",
-                title: "Marketplace order collected",
-                message: `AgriNova collected your items for order ${order.orderNumber}.`,
-                href: "/seller-orders",
-                data: { orderId: String(order._id), orderNumber: order.orderNumber },
-            });
-        }
-
-        if (status === "out_for_delivery") {
-            await NotificationService.createNotification({
-                userId: String(order.customerId),
-                type: "MARKETPLACE_OUT_FOR_DELIVERY",
-                title: "Order is out for delivery",
-                message: `Order ${order.orderNumber} is on the way to you.`,
-                href: `/orders/${order._id}`,
-                data: { orderId: String(order._id), orderNumber: order.orderNumber },
-            });
-        }
-
-        if (status === "delivered") {
-            await NotificationService.createNotification({
-                userId: String(order.customerId),
-                type: "MARKETPLACE_DELIVERED",
-                title: "Order delivered",
-                message: `Order ${order.orderNumber} was marked delivered.`,
-                href: `/orders/${order._id}`,
-                data: { orderId: String(order._id), orderNumber: order.orderNumber },
-            });
-        }
-
-        return order;
+        totalPages:
+          Math.max(
+            Math.ceil(
+              total /
+                limit
+            ),
+            1
+          ),
+      },
     };
-const getAllOrdersForAdmin =
-    async () => {
-        return Order.find({})
-            .sort({
-                createdAt: -1,
-            })
-            .lean();
-    };
+  };
 
 const updateOrderStatusByAdmin =
-    async (
-        orderId: string,
-        status: any
-    ) => {
-        if (
-            !isValidObjectId(orderId)
-        ) {
-            throw new AppError(
-                400,
-                "Invalid order ID"
-            );
+  async (
+    orderId: string,
+    status: any
+  ) => {
+    if (
+      !isValidObjectId(
+        orderId
+      )
+    ) {
+      throw new AppError(
+        400,
+        "Invalid order ID"
+      );
+    }
+
+    const order =
+      await Order.findByIdAndUpdate(
+        orderId,
+
+        {
+          $set: {
+            status,
+          },
+        },
+
+        {
+          new: true,
+
+          runValidators:
+            true,
         }
+      );
 
-        const order =
-            await Order.findByIdAndUpdate(
-                orderId,
-                {
-                    $set: {
-                        status,
-                    },
-                },
-                {
-                    new: true,
-                    runValidators:
-                        true,
-                }
-            );
+    if (!order) {
+      throw new AppError(
+        404,
+        "Order not found"
+      );
+    }
 
-        if (!order) {
-            throw new AppError(
-                404,
-                "Order not found"
-            );
-        }
+    return order;
+  };
 
-        return order;
-    };
+export const OrderService =
+  {
+    getCheckoutConfig,
 
-export const OrderService = {
     createOrderInDB,
 
     getMyOrdersFromDB,
@@ -1219,4 +2446,4 @@ export const OrderService = {
     getAllOrdersForAdmin,
 
     updateOrderStatusByAdmin,
-};
+  };

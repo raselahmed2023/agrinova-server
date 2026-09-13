@@ -34,14 +34,43 @@ const upload =
     },
   });
 
-
-
 router.get(
   "/",
+
   BlogController.getAllBlogs
 );
 
 
+
+router.get(
+  "/admin",
+
+  authenticate,
+
+  authorize("ADMIN"),
+
+  BlogController.getAdminBlogs
+);
+
+router.patch(
+  "/admin/:id/status",
+
+  authenticate,
+
+  authorize("ADMIN"),
+
+  BlogController.setBlogStatusByAdmin
+);
+
+router.delete(
+  "/admin/:id",
+
+  authenticate,
+
+  authorize("ADMIN"),
+
+  BlogController.deleteBlogByAdmin
+);
 
 router.get(
   "/mine",
@@ -81,8 +110,6 @@ router.post(
   BlogController.createBlog
 );
 
-
-
 router.post(
   "/:id/comments",
 
@@ -119,8 +146,6 @@ router.post(
   BlogController.addReply
 );
 
-
-
 router.patch(
   "/:id",
 
@@ -144,8 +169,6 @@ router.delete(
 
   BlogController.deleteBlog
 );
-
-
 
 router.get(
   "/:id",

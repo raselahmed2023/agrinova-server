@@ -19,59 +19,98 @@ import {
   Blog,
 } from "./blog.model";
 
-const generateSlug = (
-  title: string
-): string =>
-  `${title
-    .toLowerCase()
-    .trim()
-    .replace(
-      /[^\w\s-]/g,
-      ""
-    )
-    .replace(
-      /[\s_-]+/g,
-      "-"
-    )
-    .replace(
-      /^-+|-+$/g,
-      ""
-    )}-${Math.random()
-    .toString(36)
-    .slice(2, 7)}`;
+const sanitizePublicBlog =
+  (
+    blog:
+      any
+  ) => {
+    if (!blog) {
+      return blog;
+    }
 
-const calculateReadTime = (
-  content: string
-): string => {
-  const words =
-    content
+    const safe = {
+      ...blog,
+
+      author:
+        blog.author
+          ? {
+              ...blog.author,
+            }
+          : blog.author,
+    };
+
+    if (
+      safe.author
+    ) {
+      delete safe.author
+        .email;
+    }
+
+    return safe;
+  };
+
+const generateSlug =
+  (
+    title:
+      string
+  ): string =>
+    `${title
+      .toLowerCase()
       .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .length;
+      .replace(
+        /[^\w\s-]/g,
+        ""
+      )
+      .replace(
+        /[\s_-]+/g,
+        "-"
+      )
+      .replace(
+        /^-+|-+$/g,
+        ""
+      )}-${Math.random()
+      .toString(36)
+      .slice(2, 7)}`;
 
-  return `${Math.max(
-    1,
-    Math.ceil(
-      words / 200
-    )
-  )} min read`;
-};
+const calculateReadTime =
+  (
+    content:
+      string
+  ): string => {
+    const words =
+      content
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .length;
+
+    return `${Math.max(
+      1,
+
+      Math.ceil(
+        words / 200
+      )
+    )} min read`;
+  };
 
 const getAllBlogsFromDB =
   async (
-    query: IBlogQuery
+    query:
+      IBlogQuery
   ) => {
-    const filter: Record<
-      string,
-      unknown
-    > = {
-      status: "PUBLISHED",
+    const filter:
+      Record<
+        string,
+        unknown
+      > = {
+      status:
+        "PUBLISHED",
     };
 
     if (
       query.category &&
-      query.category !== "All"
+      query.category !==
+        "All"
     ) {
       filter.category =
         new RegExp(
@@ -80,13 +119,18 @@ const getAllBlogsFromDB =
         );
     }
 
-    if (query.authorId) {
+    if (
+      query.authorId
+    ) {
       filter[
         "author.id"
-      ] = query.authorId;
+      ] =
+        query.authorId;
     }
 
-    if (query.search) {
+    if (
+      query.search
+    ) {
       const rx =
         new RegExp(
           query.search,
@@ -95,25 +139,31 @@ const getAllBlogsFromDB =
 
       filter.$or = [
         {
-          title: rx,
+          title:
+            rx,
         },
 
         {
-          summary: rx,
+          summary:
+            rx,
         },
 
         {
-          category: rx,
+          category:
+            rx,
         },
 
         {
           tags: {
-            $in: [rx],
+            $in: [
+              rx,
+            ],
           },
         },
 
         {
-          "author.name": rx,
+          "author.name":
+            rx,
         },
       ];
     }
@@ -146,15 +196,167 @@ const getAllBlogsFromDB =
       total,
     ] =
       await Promise.all([
-        Blog.find(filter)
+        Blog.find(
+          filter
+        )
           .select(
             "-comments"
           )
           .sort({
-            createdAt: -1,
+            createdAt:
+              -1,
           })
-          .skip(skip)
-          .limit(limit)
+          .skip(
+            skip
+          )
+          .limit(
+            limit
+          )
+          .lean(),
+
+        Blog.countDocuments(
+          filter
+        ),
+      ]);
+
+    return {
+      blogs:
+        blogs.map(
+          sanitizePublicBlog
+        ),
+
+      meta: {
+        page,
+
+        limit,
+
+        total,
+
+        totalPages:
+          Math.ceil(
+            total /
+              limit
+          ),
+      },
+    };
+  };
+
+const getAdminBlogsFromDB =
+  async (
+    query:
+      IBlogQuery
+  ) => {
+    const filter:
+      Record<
+        string,
+        unknown
+      > = {};
+
+    if (
+      query.status &&
+      query.status !==
+        "ALL"
+    ) {
+      filter.status =
+        query.status;
+    }
+
+    if (
+      query.category &&
+      query.category !==
+        "All"
+    ) {
+      filter.category =
+        new RegExp(
+          `^${query.category}$`,
+          "i"
+        );
+    }
+
+    if (
+      query.search
+    ) {
+      const escaped =
+        String(
+          query.search
+        ).replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&"
+        );
+
+      const rx =
+        new RegExp(
+          escaped,
+          "i"
+        );
+
+      filter.$or = [
+        {
+          title:
+            rx,
+        },
+
+        {
+          summary:
+            rx,
+        },
+
+        {
+          category:
+            rx,
+        },
+
+        {
+          "author.name":
+            rx,
+        },
+      ];
+    }
+
+    const page =
+      Math.max(
+        Number(
+          query.page
+        ) || 1,
+        1
+      );
+
+    const limit =
+      Math.min(
+        Math.max(
+          Number(
+            query.limit
+          ) || 12,
+          1
+        ),
+        50
+      );
+
+    const skip =
+      (page - 1) *
+      limit;
+
+    const [
+      blogs,
+      total,
+    ] =
+      await Promise.all([
+        Blog.find(
+          filter
+        )
+          .select(
+            "-comments"
+          )
+          .sort({
+            createdAt:
+              -1,
+          })
+          .skip(
+            skip
+          )
+          .limit(
+            limit
+          )
           .lean(),
 
         Blog.countDocuments(
@@ -167,20 +369,124 @@ const getAllBlogsFromDB =
 
       meta: {
         page,
+
         limit,
+
         total,
 
         totalPages:
-          Math.ceil(
-            total / limit
+          Math.max(
+            Math.ceil(
+              total /
+                limit
+            ),
+            1
           ),
       },
     };
   };
 
+const setBlogStatusByAdminInDB =
+  async (
+    id:
+      string,
+
+    status:
+      | "PUBLISHED"
+      | "DRAFT"
+  ) => {
+    if (
+      !mongoose.Types.ObjectId.isValid(
+        id
+      )
+    ) {
+      throw new AppError(
+        400,
+        "Invalid blog ID"
+      );
+    }
+
+    if (
+      ![
+        "PUBLISHED",
+        "DRAFT",
+      ].includes(
+        status
+      )
+    ) {
+      throw new AppError(
+        400,
+        "Status must be PUBLISHED or DRAFT"
+      );
+    }
+
+    const blog =
+      await Blog.findByIdAndUpdate(
+        id,
+
+        {
+          $set: {
+            status,
+          },
+        },
+
+        {
+          new:
+            true,
+
+          runValidators:
+            true,
+        }
+      );
+
+    if (!blog) {
+      throw new AppError(
+        404,
+        "Blog article not found"
+      );
+    }
+
+    return blog;
+  };
+
+const deleteBlogByAdminFromDB =
+  async (
+    id:
+      string
+  ) => {
+    if (
+      !mongoose.Types.ObjectId.isValid(
+        id
+      )
+    ) {
+      throw new AppError(
+        400,
+        "Invalid blog ID"
+      );
+    }
+
+    const blog =
+      await Blog.findByIdAndDelete(
+        id
+      );
+
+    if (!blog) {
+      throw new AppError(
+        404,
+        "Blog article not found"
+      );
+    }
+
+    return {
+      deleted:
+        true,
+    };
+  };
+
 const getMyBlogsFromDB =
   async (
-    expertId: string
+    expertId:
+      string
   ) =>
     Blog.find({
       "author.id":
@@ -190,13 +496,15 @@ const getMyBlogsFromDB =
         "-comments"
       )
       .sort({
-        updatedAt: -1,
+        updatedAt:
+          -1,
       })
       .lean();
 
 const getBlogByIdOrSlugFromDB =
   async (
-    idOrSlug: string
+    idOrSlug:
+      string
   ) => {
     const query =
       mongoose.Types.ObjectId.isValid(
@@ -232,12 +540,14 @@ const getBlogByIdOrSlugFromDB =
 
         {
           $inc: {
-            views: 1,
+            views:
+              1,
           },
         },
 
         {
-          new: true,
+          new:
+            true,
         }
       ).lean();
 
@@ -263,7 +573,8 @@ const getBlogByIdOrSlugFromDB =
           },
         })
           .sort({
-            createdAt: -1,
+            createdAt:
+              -1,
           })
           .select(
             "title slug summary images readTime category author"
@@ -280,7 +591,8 @@ const getBlogByIdOrSlugFromDB =
           },
         })
           .sort({
-            createdAt: 1,
+            createdAt:
+              1,
           })
           .select(
             "title slug summary images readTime category author"
@@ -289,24 +601,40 @@ const getBlogByIdOrSlugFromDB =
       ]);
 
     return {
-      blog,
-      nextBlog,
-      prevBlog,
+      blog:
+        sanitizePublicBlog(
+          blog
+        ),
+
+      nextBlog:
+        sanitizePublicBlog(
+          nextBlog
+        ),
+
+      prevBlog:
+        sanitizePublicBlog(
+          prevBlog
+        ),
     };
   };
 
-const buildAuthor = async (
-  user: {
-    id: string;
+const buildAuthor =
+  async (
+    user: {
+      id:
+        string;
 
-    email: string;
+      email:
+        string;
 
-    name?: string;
-  }
-): Promise<IBlogAuthor> => {
-  let author: IBlogAuthor =
-    {
-      id: user.id,
+      name?:
+        string;
+    }
+  ): Promise<IBlogAuthor> => {
+    let author:
+      IBlogAuthor = {
+      id:
+        user.id,
 
       name:
         user.name ||
@@ -322,48 +650,50 @@ const buildAuthor = async (
         "Smart Agriculture",
     };
 
-  try {
-    const userDoc =
-      await UserModel.findById(
-        user.id
-      );
+    try {
+      const userDoc =
+        await UserModel.findById(
+          user.id
+        );
 
-    if (userDoc) {
-      author = {
-        id:
-          user.id,
+      if (
+        userDoc
+      ) {
+        author = {
+          id:
+            user.id,
 
-        name:
-          userDoc.name ||
-          author.name,
+          name:
+            userDoc.name ||
+            author.name,
 
-        email:
-          userDoc.email ||
-          user.email,
+          email:
+            userDoc.email ||
+            user.email,
 
-        avatar:
-          userDoc.avatar ||
-          userDoc.image,
+          avatar:
+            userDoc.avatar ||
+            userDoc.image,
 
-        title:
-          userDoc.title ||
-          "Agricultural Specialist",
+          title:
+            userDoc.title ||
+            "Agricultural Specialist",
 
-        specialization:
-          userDoc.specialization ||
-          "Smart Agriculture",
+          specialization:
+            userDoc.specialization ||
+            "Smart Agriculture",
 
-        bio:
-          userDoc.bio,
-      };
+          bio:
+            userDoc.bio,
+        };
+      }
+    } catch {
+      // Token identity is enough
+      // if profile lookup fails.
     }
-  } catch {
-    // Token identity is enough
-    // if profile lookup fails.
-  }
 
-  return author;
-};
+    return author;
+  };
 
 const createBlogInDB =
   async (
@@ -371,13 +701,17 @@ const createBlogInDB =
       Partial<IBlog>,
 
     user: {
-      id: string;
+      id:
+        string;
 
-      email: string;
+      email:
+        string;
 
-      name?: string;
+      name?:
+        string;
 
-      role: string;
+      role:
+        string;
     }
   ) => {
     if (
@@ -426,16 +760,21 @@ const createBlogInDB =
         payload.status ||
         "PUBLISHED",
 
-      views: 0,
+      views:
+        0,
 
-      comments: [],
+      comments:
+        [],
     });
   };
 
 const getOwnedBlog =
   async (
-    id: string,
-    expertId: string
+    id:
+      string,
+
+    expertId:
+      string
   ) => {
     const query =
       mongoose.Types.ObjectId.isValid(
@@ -444,16 +783,19 @@ const getOwnedBlog =
         ? {
             $or: [
               {
-                _id: id,
+                _id:
+                  id,
               },
 
               {
-                slug: id,
+                slug:
+                  id,
               },
             ],
           }
         : {
-            slug: id,
+            slug:
+              id,
           };
 
     const blog =
@@ -483,17 +825,21 @@ const getOwnedBlog =
 
 const updateBlogInDB =
   async (
-    id: string,
+    id:
+      string,
 
     payload:
       Partial<IBlog>,
 
     user: {
-      id: string;
+      id:
+        string;
 
-      email: string;
+      email:
+        string;
 
-      role: string;
+      role:
+        string;
     }
   ) => {
     if (
@@ -530,7 +876,9 @@ const updateBlogInDB =
       of allowed
     ) {
       if (
-        payload[field] !==
+        payload[
+          field
+        ] !==
         undefined
       ) {
         (
@@ -545,7 +893,9 @@ const updateBlogInDB =
       }
     }
 
-    if (payload.title) {
+    if (
+      payload.title
+    ) {
       blog.slug =
         generateSlug(
           payload.title
@@ -568,14 +918,18 @@ const updateBlogInDB =
 
 const deleteBlogFromDB =
   async (
-    id: string,
+    id:
+      string,
 
     user: {
-      id: string;
+      id:
+        string;
 
-      email: string;
+      email:
+        string;
 
-      role: string;
+      role:
+        string;
     }
   ) => {
     if (
@@ -597,22 +951,28 @@ const deleteBlogFromDB =
     await blog.deleteOne();
 
     return {
-      deleted: true,
+      deleted:
+        true,
     };
   };
 
 const addCommentInDB =
   async (
-    id: string,
+    id:
+      string,
 
-    content: string,
+    content:
+      string,
 
     user: {
-      id: string;
+      id:
+        string;
 
-      name?: string;
+      name?:
+        string;
 
-      email: string;
+      email:
+        string;
 
       role:
         | "FARMER"
@@ -628,11 +988,13 @@ const addCommentInDB =
           ? {
               $or: [
                 {
-                  _id: id,
+                  _id:
+                    id,
                 },
 
                 {
-                  slug: id,
+                  slug:
+                    id,
                 },
               ],
 
@@ -640,7 +1002,8 @@ const addCommentInDB =
                 "PUBLISHED",
             }
           : {
-              slug: id,
+              slug:
+                id,
 
               status:
                 "PUBLISHED",
@@ -669,7 +1032,8 @@ const addCommentInDB =
 
       content,
 
-      replies: [],
+      replies:
+        [],
     });
 
     await blog.save();
@@ -682,18 +1046,24 @@ const addCommentInDB =
 
 const addReplyInDB =
   async (
-    id: string,
+    id:
+      string,
 
-    commentId: string,
+    commentId:
+      string,
 
-    content: string,
+    content:
+      string,
 
     user: {
-      id: string;
+      id:
+        string;
 
-      name?: string;
+      name?:
+        string;
 
-      email: string;
+      email:
+        string;
 
       role:
         | "FARMER"
@@ -709,11 +1079,13 @@ const addReplyInDB =
           ? {
               $or: [
                 {
-                  _id: id,
+                  _id:
+                    id,
                 },
 
                 {
-                  slug: id,
+                  slug:
+                    id,
                 },
               ],
 
@@ -721,7 +1093,8 @@ const addReplyInDB =
                 "PUBLISHED",
             }
           : {
-              slug: id,
+              slug:
+                id,
 
               status:
                 "PUBLISHED",
@@ -743,7 +1116,8 @@ const addReplyInDB =
         ) =>
           String(
             item._id
-          ) === commentId
+          ) ===
+          commentId
       );
 
     if (!comment) {
@@ -772,8 +1146,8 @@ const addReplyInDB =
     await blog.save();
 
     return comment.replies[
-      comment.replies
-        .length - 1
+      comment.replies.length -
+        1
     ];
   };
 
@@ -806,7 +1180,9 @@ const uploadImageToImgBB =
 
     if (
       file.size >
-      8 * 1024 * 1024
+      8 *
+        1024 *
+        1024
     ) {
       throw new AppError(
         400,
@@ -819,6 +1195,7 @@ const uploadImageToImgBB =
 
     form.set(
       "image",
+
       file.buffer.toString(
         "base64"
       )
@@ -826,6 +1203,7 @@ const uploadImageToImgBB =
 
     form.set(
       "name",
+
       `agrinova-blog-${Date.now()}`
     );
 
@@ -843,7 +1221,8 @@ const uploadImageToImgBB =
               "application/x-www-form-urlencoded",
           },
 
-          timeout: 25000,
+          timeout:
+            25000,
         }
       );
 
@@ -861,18 +1240,35 @@ const uploadImageToImgBB =
     }
 
     return {
-      url: String(url),
+      url:
+        String(
+          url
+        ),
     };
   };
 
 export const BlogService = {
   getAllBlogsFromDB,
+
+  getAdminBlogsFromDB,
+
+  setBlogStatusByAdminInDB,
+
+  deleteBlogByAdminFromDB,
+
   getMyBlogsFromDB,
+
   getBlogByIdOrSlugFromDB,
+
   createBlogInDB,
+
   updateBlogInDB,
+
   deleteBlogFromDB,
+
   addCommentInDB,
+
   addReplyInDB,
+
   uploadImageToImgBB,
 };

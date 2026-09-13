@@ -32,9 +32,7 @@ import {
   InvestmentProject,
 } from "./investment.model";
 
-/* ============================================================
-   HELPERS
-============================================================ */
+
 
 const generateCode =
   async (
@@ -166,9 +164,7 @@ const normalizeProject =
     };
   };
 
-/* ============================================================
-   FARMER PROJECT CREATION
-============================================================ */
+
 
 const createInvestmentProjectInDB =
   async (
@@ -368,9 +364,7 @@ const createInvestmentProjectInDB =
     return project;
   };
 
-/* ============================================================
-   FARMER PROJECT LIST
-============================================================ */
+
 
 const getMyInvestmentProjectsFromDB =
   async (
@@ -450,9 +444,7 @@ const getMyInvestmentProjectByIdFromDB =
     );
   };
 
-/* ============================================================
-   FARMER PROJECT UPDATE
-============================================================ */
+
 
 const updateMyInvestmentProjectInDB =
   async (
@@ -575,9 +567,7 @@ const updateMyInvestmentProjectInDB =
     return project;
   };
 
-/* ============================================================
-   FARMER PROJECT DELETE / WITHDRAW
-============================================================ */
+
 
 const deleteMyInvestmentProjectFromDB =
   async (
@@ -645,9 +635,7 @@ const deleteMyInvestmentProjectFromDB =
     return project;
   };
 
-/* ============================================================
-   FILTERS
-============================================================ */
+
 
 const buildProjectFilter =
   (
@@ -788,9 +776,7 @@ const paginate =
     };
   };
 
-/* ============================================================
-   PUBLIC APPROVED PROJECTS
-============================================================ */
+
 
 const getApprovedInvestmentProjectsFromDB =
   async (
@@ -912,9 +898,7 @@ const getApprovedInvestmentProjectByIdFromDB =
     );
   };
 
-/* ============================================================
-   ADMIN PROJECTS
-============================================================ */
+
 
 const getAdminInvestmentProjectsFromDB =
   async (
@@ -1026,9 +1010,7 @@ const getAdminInvestmentProjectByIdFromDB =
     );
   };
 
-/* ============================================================
-   ADMIN PROJECT REVIEW
-============================================================ */
+
 
 const reviewInvestmentProjectInDB =
   async (
@@ -1180,9 +1162,7 @@ const reviewInvestmentProjectInDB =
     return project;
   };
 
-/* ============================================================
-   INVESTOR APPLICATION
-============================================================ */
+
 
 const createInvestmentApplicationInDB =
   async (
@@ -1262,24 +1242,6 @@ const createInvestmentApplicationInDB =
       );
     }
 
-    if (
-      payload.amount <
-      Number(
-        project.minimumInvestment ||
-          1000
-      )
-    ) {
-      throw new AppError(
-        400,
-        `Minimum investment is ৳${Number(
-          project.minimumInvestment ||
-            1000
-        ).toLocaleString(
-          "en-BD"
-        )}`
-      );
-    }
-
     const remaining =
       Math.max(
         Number(
@@ -1292,6 +1254,37 @@ const createInvestmentApplicationInDB =
 
         0
       );
+
+    if (remaining <= 0) {
+      throw new AppError(
+        400,
+        "This project is already fully funded"
+      );
+    }
+
+    const configuredMinimum =
+      Number(
+        project.minimumInvestment ||
+          1000
+      );
+
+    const effectiveMinimum =
+      Math.min(
+        configuredMinimum,
+        remaining
+      );
+
+    if (
+      payload.amount <
+      effectiveMinimum
+    ) {
+      throw new AppError(
+        400,
+        `Minimum investment is ৳${effectiveMinimum.toLocaleString(
+          "en-BD"
+        )}`
+      );
+    }
 
     if (
       payload.amount >
@@ -1422,11 +1415,7 @@ const createInvestmentApplicationInDB =
         }
       );
 
-    /*
-      IMPORTANT:
-      NID must not be returned to the investor.
-      It remains available to Admin through explicit +nidNumber select.
-    */
+   
     const safe =
       created.toObject() as unknown as Record<
         string,
@@ -1438,9 +1427,7 @@ const createInvestmentApplicationInDB =
     return safe;
   };
 
-/* ============================================================
-   MY INVESTMENTS
-============================================================ */
+
 
 const getMyInvestmentApplicationsFromDB =
   async (
@@ -1510,9 +1497,92 @@ const getMyInvestmentApplicationByIdFromDB =
     return application;
   };
 
-/* ============================================================
-   BANK PAYMENT
-============================================================ */
+
+const ensureApplicationStillFitsAvailableFunding =
+  async (
+    application: {
+      _id: unknown;
+      projectId: string;
+      amount: number;
+    }
+  ) => {
+    const project =
+      await InvestmentProject.findOne({
+        _id: application.projectId,
+        status: "APPROVED",
+        fundingStatus: "OPEN",
+        isDeleted: {
+          $ne: true,
+        },
+      });
+
+    if (!project) {
+      throw new AppError(
+        400,
+        "The project is no longer open for investment"
+      );
+    }
+
+    const committedAgg =
+      await InvestmentApplication.aggregate([
+        {
+          $match: {
+            projectId: application.projectId,
+            _id: {
+              $ne: application._id,
+            },
+            status: "APPROVED",
+            paymentStatus: {
+              $nin: [
+                "PAYMENT_REJECTED",
+                "FAILED",
+              ],
+            },
+            isDeleted: {
+              $ne: true,
+            },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: {
+              $sum: "$amount",
+            },
+          },
+        },
+      ]);
+
+    const committed =
+      Number(
+        committedAgg[0]?.total ||
+          0
+      );
+
+    const available =
+      Math.max(
+        Number(
+          project.requiredInvestment
+        ) - committed,
+        0
+      );
+
+    if (
+      Number(application.amount) >
+      available
+    ) {
+      throw new AppError(
+        409,
+        `Only ৳${available.toLocaleString(
+          "en-BD"
+        )} remains available. This payment can no longer be retried because the funding was committed to another investor.`
+      );
+    }
+
+    return project;
+  };
+
+
 
 const submitBankPaymentInDB =
   async (
@@ -1584,6 +1654,20 @@ const submitBankPaymentInDB =
       );
     }
 
+    if (
+      application.paymentStatus ===
+      "PENDING_VERIFICATION"
+    ) {
+      throw new AppError(
+        409,
+        "Your bank payment proof is already awaiting Admin verification"
+      );
+    }
+
+    await ensureApplicationStillFitsAvailableFunding(
+      application
+    );
+
     application.senderBankName =
       payload.senderBankName;
 
@@ -1633,9 +1717,7 @@ const submitBankPaymentInDB =
     return application;
   };
 
-/* ============================================================
-   STRIPE CHECKOUT
-============================================================ */
+
 
 const createStripeCheckoutSessionForInvestment =
   async (
@@ -1724,6 +1806,10 @@ const createStripeCheckoutSessionForInvestment =
         "Investment project is no longer available"
       );
     }
+
+    await ensureApplicationStillFitsAvailableFunding(
+      application
+    );
 
     const stripe =
       getStripe();
@@ -1838,9 +1924,7 @@ const createStripeCheckoutSessionForInvestment =
     };
   };
 
-/* ============================================================
-   PAYMENT CONFIRMATION
-============================================================ */
+
 
 const confirmPaidApplication =
   async (
@@ -2071,7 +2155,7 @@ const markInvestmentPaymentFailed =
 
           ...(reference
             ? {
-                stripePaymentIntentId:
+                stripeSessionId:
                   reference,
               }
             : {}),
@@ -2085,9 +2169,7 @@ const markInvestmentPaymentFailed =
     );
   };
 
-/* ============================================================
-   STRIPE VERIFY
-============================================================ */
+
 
 const verifyStripeInvestmentSession =
   async (
@@ -2204,9 +2286,7 @@ const verifyStripeInvestmentSession =
     return refreshed;
   };
 
-/* ============================================================
-   ADMIN INVESTMENT APPLICATIONS
-============================================================ */
+
 
 const getAdminInvestmentApplicationsFromDB =
   async (
@@ -2354,9 +2434,7 @@ const getAdminInvestmentApplicationsFromDB =
     };
   };
 
-/* ============================================================
-   ADMIN APPLICATION REVIEW
-============================================================ */
+
 
 const reviewInvestmentApplicationInDB =
   async (
@@ -2645,9 +2723,7 @@ const reviewInvestmentApplicationInDB =
     return application;
   };
 
-/* ============================================================
-   ADMIN BANK PAYMENT REVIEW
-============================================================ */
+
 
 const reviewBankPaymentInDB =
   async (
@@ -2771,9 +2847,7 @@ const reviewBankPaymentInDB =
     ).lean();
   };
 
-/* ============================================================
-   EXPORT
-============================================================ */
+
 
 export const InvestmentService = {
   createInvestmentProjectInDB,

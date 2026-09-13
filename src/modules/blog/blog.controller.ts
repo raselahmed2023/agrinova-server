@@ -65,20 +65,164 @@ const getAllBlogs =
           }
         );
 
-      sendResponse(res, {
-        statusCode: 200,
+      sendResponse(
+        res,
+        {
+          statusCode:
+            200,
 
-        success: true,
+          success:
+            true,
 
-        message:
-          "Blog articles retrieved successfully",
+          message:
+            "Blog articles retrieved successfully",
 
-        meta:
-          result.meta,
+          meta:
+            result.meta,
 
-        data:
-          result.blogs,
-      });
+          data:
+            result.blogs,
+        }
+      );
+    }
+  );
+
+const getAdminBlogs =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      requireUser(
+        req
+      );
+
+      const result =
+        await BlogService.getAdminBlogsFromDB(
+          {
+            search:
+              req.query
+                .search as string,
+
+            category:
+              req.query
+                .category as string,
+
+            status:
+              req.query
+                .status as string,
+
+            page:
+              req.query.page
+                ? Number(
+                    req.query
+                      .page
+                  )
+                : undefined,
+
+            limit:
+              req.query.limit
+                ? Number(
+                    req.query
+                      .limit
+                  )
+                : undefined,
+          }
+        );
+
+      sendResponse(
+        res,
+        {
+          statusCode:
+            200,
+
+          success:
+            true,
+
+          message:
+            "Admin blog list retrieved successfully",
+
+          meta:
+            result.meta,
+
+          data:
+            result.blogs,
+        }
+      );
+    }
+  );
+
+const setBlogStatusByAdmin =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      requireUser(
+        req
+      );
+
+      const result =
+        await BlogService.setBlogStatusByAdminInDB(
+          String(
+            req.params.id
+          ),
+
+          req.body.status
+        );
+
+      sendResponse(
+        res,
+        {
+          statusCode:
+            200,
+
+          success:
+            true,
+
+          message:
+            "Blog moderation status updated",
+
+          data:
+            result,
+        }
+      );
+    }
+  );
+
+const deleteBlogByAdmin =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      requireUser(
+        req
+      );
+
+      const result =
+        await BlogService.deleteBlogByAdminFromDB(
+          String(
+            req.params.id
+          )
+        );
+
+      sendResponse(
+        res,
+        {
+          statusCode:
+            200,
+
+          success:
+            true,
+
+          message:
+            "Blog article removed by admin",
+
+          data:
+            result,
+        }
+      );
     }
   );
 
@@ -89,23 +233,31 @@ const getMyBlogs =
       res: Response
     ) => {
       const user =
-        requireUser(req);
+        requireUser(
+          req
+        );
 
       const result =
         await BlogService.getMyBlogsFromDB(
           user.id
         );
 
-      sendResponse(res, {
-        statusCode: 200,
+      sendResponse(
+        res,
+        {
+          statusCode:
+            200,
 
-        success: true,
+          success:
+            true,
 
-        message:
-          "Your articles retrieved successfully",
+          message:
+            "Your articles retrieved successfully",
 
-        data: result,
-      });
+          data:
+            result,
+        }
+      );
     }
   );
 
@@ -122,16 +274,22 @@ const getSingleBlog =
           )
         );
 
-      sendResponse(res, {
-        statusCode: 200,
+      sendResponse(
+        res,
+        {
+          statusCode:
+            200,
 
-        success: true,
+          success:
+            true,
 
-        message:
-          "Blog article retrieved successfully",
+          message:
+            "Blog article retrieved successfully",
 
-        data: result,
-      });
+          data:
+            result,
+        }
+      );
     }
   );
 
@@ -142,7 +300,9 @@ const createBlog =
       res: Response
     ) => {
       const user =
-        requireUser(req);
+        requireUser(
+          req
+        );
 
       const result =
         await BlogService.createBlogInDB(
@@ -150,16 +310,22 @@ const createBlog =
           user
         );
 
-      sendResponse(res, {
-        statusCode: 201,
+      sendResponse(
+        res,
+        {
+          statusCode:
+            201,
 
-        success: true,
+          success:
+            true,
 
-        message:
-          "Blog article saved successfully",
+          message:
+            "Blog article saved successfully",
 
-        data: result,
-      });
+          data:
+            result,
+        }
+      );
     }
   );
 
@@ -170,27 +336,37 @@ const updateBlog =
       res: Response
     ) => {
       const user =
-        requireUser(req);
+        requireUser(
+          req
+        );
 
       const result =
         await BlogService.updateBlogInDB(
           String(
             req.params.id
           ),
+
           req.body,
+
           user
         );
 
-      sendResponse(res, {
-        statusCode: 200,
+      sendResponse(
+        res,
+        {
+          statusCode:
+            200,
 
-        success: true,
+          success:
+            true,
 
-        message:
-          "Blog article updated successfully",
+          message:
+            "Blog article updated successfully",
 
-        data: result,
-      });
+          data:
+            result,
+        }
+      );
     }
   );
 
@@ -201,26 +377,35 @@ const deleteBlog =
       res: Response
     ) => {
       const user =
-        requireUser(req);
+        requireUser(
+          req
+        );
 
       const result =
         await BlogService.deleteBlogFromDB(
           String(
             req.params.id
           ),
+
           user
         );
 
-      sendResponse(res, {
-        statusCode: 200,
+      sendResponse(
+        res,
+        {
+          statusCode:
+            200,
 
-        success: true,
+          success:
+            true,
 
-        message:
-          "Blog article deleted successfully",
+          message:
+            "Blog article deleted successfully",
 
-        data: result,
-      });
+          data:
+            result,
+        }
+      );
     }
   );
 
@@ -231,7 +416,9 @@ const addComment =
       res: Response
     ) => {
       const user =
-        requireUser(req);
+        requireUser(
+          req
+        );
 
       const result =
         await BlogService.addCommentInDB(
@@ -244,16 +431,22 @@ const addComment =
           user
         );
 
-      sendResponse(res, {
-        statusCode: 201,
+      sendResponse(
+        res,
+        {
+          statusCode:
+            201,
 
-        success: true,
+          success:
+            true,
 
-        message:
-          "Comment added",
+          message:
+            "Comment added",
 
-        data: result,
-      });
+          data:
+            result,
+        }
+      );
     }
   );
 
@@ -264,7 +457,9 @@ const addReply =
       res: Response
     ) => {
       const user =
-        requireUser(req);
+        requireUser(
+          req
+        );
 
       const result =
         await BlogService.addReplyInDB(
@@ -282,16 +477,22 @@ const addReply =
           user
         );
 
-      sendResponse(res, {
-        statusCode: 201,
+      sendResponse(
+        res,
+        {
+          statusCode:
+            201,
 
-        success: true,
+          success:
+            true,
 
-        message:
-          "Reply added",
+          message:
+            "Reply added",
 
-        data: result,
-      });
+          data:
+            result,
+        }
+      );
     }
   );
 
@@ -301,7 +502,9 @@ const uploadImage =
       req: Request,
       res: Response
     ) => {
-      requireUser(req);
+      requireUser(
+        req
+      );
 
       if (!req.file) {
         throw new AppError(
@@ -315,27 +518,47 @@ const uploadImage =
           req.file
         );
 
-      sendResponse(res, {
-        statusCode: 201,
+      sendResponse(
+        res,
+        {
+          statusCode:
+            201,
 
-        success: true,
+          success:
+            true,
 
-        message:
-          "Image uploaded successfully",
+          message:
+            "Image uploaded successfully",
 
-        data: result,
-      });
+          data:
+            result,
+        }
+      );
     }
   );
 
 export const BlogController = {
   getAllBlogs,
+
+  getAdminBlogs,
+
+  setBlogStatusByAdmin,
+
+  deleteBlogByAdmin,
+
   getMyBlogs,
+
   getSingleBlog,
+
   createBlog,
+
   updateBlog,
+
   deleteBlog,
+
   addComment,
+
   addReply,
+
   uploadImage,
 };

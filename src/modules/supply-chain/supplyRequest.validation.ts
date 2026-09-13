@@ -29,6 +29,66 @@ const statusSchema =
     SUPPLY_STATUSES
   );
 
+/*
+ * Accept:
+ *
+ * https://i.ibb.co/...
+ *
+ * OR your Next.js local upload fallback:
+ *
+ * /uploads/filename.jpg
+ */
+const imageUrlSchema =
+  z
+    .string()
+    .trim()
+    .refine(
+      (value) => {
+        if (
+          /^\/uploads\/[A-Za-z0-9._-]+$/.test(
+            value
+          )
+        ) {
+          return true;
+        }
+
+        try {
+          const url =
+            new URL(value);
+
+          return (
+            url.protocol ===
+              "http:" ||
+            url.protocol ===
+              "https:"
+          );
+        } catch {
+          return false;
+        }
+      },
+      {
+        message:
+          "Image must be a valid HTTP(S) URL or /uploads/ path",
+      }
+    );
+
+const positiveIntegerString =
+  z
+    .string()
+    .regex(
+      /^\d+$/,
+      "Must be a positive integer"
+    )
+    .refine(
+      (value) =>
+        Number(value) >
+        0,
+      {
+        message:
+          "Must be a positive integer",
+      }
+    );
+
 const createSupplyRequestSchema =
   z.object({
     body: z.object({
@@ -118,9 +178,7 @@ const createSupplyRequestSchema =
 
       images: z
         .array(
-          z
-            .string()
-            .url()
+          imageUrlSchema
         )
         .max(5)
         .optional(),
@@ -178,24 +236,22 @@ const adminQuerySchema =
     query: z
       .object({
         status:
-          statusSchema
-            .optional(),
+          statusSchema.optional(),
 
         branch:
-          branchSchema
-            .optional(),
+          branchSchema.optional(),
 
         search: z
           .string()
+          .trim()
+          .max(200)
           .optional(),
 
-        page: z
-          .string()
-          .optional(),
+        page:
+          positiveIntegerString.optional(),
 
-        limit: z
-          .string()
-          .optional(),
+        limit:
+          positiveIntegerString.optional(),
       })
       .optional(),
   });
@@ -216,7 +272,10 @@ const trackingSchema =
 export const SupplyRequestValidation =
   {
     createSupplyRequestSchema,
+
     updateStatusSchema,
+
     adminQuerySchema,
+
     trackingSchema,
   };

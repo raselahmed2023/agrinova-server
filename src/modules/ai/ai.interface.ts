@@ -6,6 +6,7 @@ export interface IAITextResponse {
 export interface IFarmingAssistantInput {
   message: string;
   context?: string;
+  farmId?: string;
 }
 
 export interface ISmartFarmingInput {

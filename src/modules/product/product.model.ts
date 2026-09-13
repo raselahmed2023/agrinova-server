@@ -21,6 +21,7 @@ const poultryDetailsSchema =
     {
       poultryType: {
         type: String,
+
         enum: [
           ...POULTRY_TYPES,
         ],
@@ -33,6 +34,7 @@ const poultryDetailsSchema =
 
       ageWeeks: {
         type: Number,
+
         min: [
           0,
           "Poultry age cannot be negative",
@@ -41,12 +43,14 @@ const poultryDetailsSchema =
 
       averageWeightKg: {
         type: Number,
+
         min: [
           0,
           "Poultry weight cannot be negative",
         ],
       },
     },
+
     {
       _id: false,
     }
@@ -57,28 +61,34 @@ const productSchema =
     {
       title: {
         type: String,
+
         required: [
           true,
           "Product title is required",
         ],
+
         trim: true,
       },
 
       description: {
         type: String,
+
         required: [
           true,
           "Product description is required",
         ],
+
         trim: true,
       },
 
       price: {
         type: Number,
+
         required: [
           true,
           "Product price is required",
         ],
+
         min: [
           0,
           "Price cannot be negative",
@@ -112,7 +122,8 @@ const productSchema =
           ...TRANSACTION_TYPES,
         ],
 
-        default: "sale",
+        default:
+          "sale",
 
         index: true,
       },
@@ -158,25 +169,41 @@ const productSchema =
       },
 
       images: {
-        type: [String],
+        type: [
+          String,
+        ],
+
         default: [],
       },
+
       sellerId: {
         type: String,
+
+        required: [
+          true,
+          "Seller ID is required",
+        ],
+
         index: true,
       },
 
       sellerName: {
         type: String,
+
         trim: true,
+
         default:
           "AgriNova Seller",
       },
 
       sellerEmail: {
         type: String,
+
         trim: true,
-        lowercase: true,
+
+        lowercase:
+          true,
+
         index: true,
       },
 
@@ -197,7 +224,9 @@ const productSchema =
 
       district: {
         type: String,
+
         trim: true,
+
         index: true,
       },
 
@@ -248,9 +277,12 @@ const productSchema =
 
       isDeleted: {
         type: Boolean,
+
         default: false,
+
         index: true,
       },
+
       approvedAt: {
         type: Date,
       },
@@ -263,7 +295,22 @@ const productSchema =
         type: String,
         trim: true,
       },
+
+      moderationReason: {
+        type: String,
+        trim: true,
+      },
+
+      moderatedAt: {
+        type: Date,
+      },
+
+      moderatedBy: {
+        type: String,
+        trim: true,
+      },
     },
+
     {
       timestamps: true,
     }

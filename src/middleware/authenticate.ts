@@ -4,6 +4,8 @@ import {
   Response,
 } from "express";
 
+import mongoose from "mongoose";
+
 import {
   createRemoteJWKSet,
   jwtVerify,
@@ -45,6 +47,37 @@ const getJwks = () => {
   }
 
   return jwks;
+};
+
+const getAuthUserCollection = () =>
+  mongoose.connection
+    .useDb("AgriNove-auth", {
+      useCache: true,
+    })
+    .collection("user");
+
+const findCurrentUser = async (
+  id: string
+) => {
+  const collection =
+    getAuthUserCollection();
+
+  if (
+    mongoose.Types.ObjectId.isValid(
+      id
+    )
+  ) {
+    return collection.findOne({
+      _id:
+        new mongoose.Types.ObjectId(
+          id
+        ),
+    });
+  }
+
+  return collection.findOne({
+    id,
+  });
 };
 
 const authenticate = async (
@@ -94,23 +127,50 @@ const authenticate = async (
           ? payload.sub
           : undefined;
 
+    if (!id) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "Invalid authentication token",
+      });
+    }
+
+    
+    const currentUser =
+      await findCurrentUser(id);
+
+    if (!currentUser) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "User account no longer exists",
+      });
+    }
+
     const email =
-      typeof payload.email ===
+      typeof currentUser.email ===
       "string"
-        ? payload.email
-        : undefined;
+        ? currentUser.email
+        : typeof payload.email ===
+            "string"
+          ? payload.email
+          : undefined;
 
     const role =
-      typeof payload.role ===
-      "string"
-        ? payload.role.toUpperCase()
-        : undefined;
+      String(
+        currentUser.role ||
+          payload.role ||
+          ""
+      ).toUpperCase();
 
-    if (
-      !id ||
-      !email ||
-      !role
-    ) {
+    const status =
+      String(
+        currentUser.status ||
+          payload.status ||
+          "APPROVED"
+      ).toUpperCase();
+
+    if (!email || !role) {
       return res.status(401).json({
         success: false,
         message:
@@ -130,26 +190,62 @@ const authenticate = async (
       });
     }
 
+    if (
+      status === "BLOCKED"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This account has been blocked by an administrator",
+      });
+    }
+
+    if (
+      status === "PENDING"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This account is pending administrator approval",
+      });
+    }
+
+    if (
+      status === "REJECTED"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "This account has been rejected by an administrator",
+      });
+    }
+
     req.user = {
       id,
       email,
       name:
-        typeof payload.name ===
+        typeof currentUser.name ===
         "string"
-          ? payload.name
-          : undefined,
-
-      role,
-
-      status:
-        typeof payload.status ===
-        "string"
-          ? payload.status
-          : undefined,
+          ? currentUser.name
+          : typeof payload.name ===
+              "string"
+            ? payload.name
+            : undefined,
+      role:
+        role as
+          | "FARMER"
+          | "EXPERT"
+          | "ADMIN",
+      status,
     };
 
     next();
-  } catch {
+  } catch (error) {
+    console.error(
+      "Authentication failed:",
+      error
+    );
+
     return res.status(401).json({
       success: false,
       message:

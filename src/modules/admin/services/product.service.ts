@@ -1,12 +1,119 @@
-import {
+import mongoose, {
   isValidObjectId,
 } from "mongoose";
 
 import AppError from "../../../utils/AppError";
 
 import {
+  NotificationService,
+} from "../../notification/notification.service";
+
+import {
   Product,
 } from "../../product/product.model";
+
+const getAuthUserCollection = () =>
+  mongoose.connection
+    .useDb(
+      "AgriNove-auth",
+      {
+        useCache: true,
+      }
+    )
+    .collection("user");
+
+const resolveSellerUserId =
+  async (
+    product: any
+  ): Promise<
+    string | null
+  > => {
+    if (
+      product.sellerId
+    ) {
+      return String(
+        product.sellerId
+      );
+    }
+
+    if (
+      product.sellerEmail
+    ) {
+      const user =
+        await getAuthUserCollection().findOne(
+          {
+            email: String(
+              product.sellerEmail
+            )
+              .trim()
+              .toLowerCase(),
+          },
+          {
+            projection: {
+              _id: 1,
+            },
+          }
+        );
+
+      if (
+        user?._id
+      ) {
+        return String(
+          user._id
+        );
+      }
+    }
+
+    return null;
+  };
+
+const notifySeller =
+  async (
+    product: any,
+
+    type:
+      | "MARKETPLACE_PRODUCT_HIDDEN"
+      | "MARKETPLACE_PRODUCT_REMOVED"
+      | "MARKETPLACE_PRODUCT_RESTORED",
+
+    title: string,
+
+    message: string
+  ) => {
+    const userId =
+      await resolveSellerUserId(
+        product
+      );
+
+    if (!userId) {
+      return;
+    }
+
+    await NotificationService.createNotification(
+      {
+        userId,
+
+        type,
+
+        title,
+
+        message,
+
+        href:
+          "/marketplace/listings",
+
+        data: {
+          productId:
+            String(
+              product._id
+            ),
+
+          productTitle:
+            product.title,
+        },
+      }
+    );
+  };
 
 export const ProductService = {
   async getAdminProductsFromDB(
@@ -17,74 +124,44 @@ export const ProductService = {
   ) {
     const page =
       Math.max(
-        Number(query.page) || 1,
+        Number(
+          query.page
+        ) || 1,
         1
       );
 
     const limit =
       Math.min(
         Math.max(
-          Number(query.limit) || 10,
+          Number(
+            query.limit
+          ) || 12,
           1
         ),
         50
       );
 
     const skip =
-      (page - 1) * limit;
+      (page - 1) *
+      limit;
 
-    const filter: Record<
-      string,
-      any
-    > = {
+    const filter:
+      Record<
+        string,
+        any
+      > = {
       isDeleted: {
         $ne: true,
       },
     };
-
-    const andConditions: Record<string, any>[] = [];
 
     if (
       typeof query.status ===
         "string" &&
       query.status
     ) {
-      if (query.status === "pending") {
-        /*
-         * Backward compatibility: old Agrinova listings could be saved as
-         * available/out_of_stock without ever receiving approvedAt. Those
-         * listings are not truly approved, so expose them to admins as
-         * pending review instead of letting them disappear from moderation.
-         */
-        andConditions.push({
-          $or: [
-            { status: "pending" },
-            {
-              status: {
-                $in: ["available", "out_of_stock"],
-              },
-              approvedAt: { $exists: false },
-            },
-            {
-              status: {
-                $in: ["available", "out_of_stock"],
-              },
-              approvedAt: null,
-            },
-          ],
-        });
-      } else if (
-        query.status === "available" ||
-        query.status === "out_of_stock"
-      ) {
-        filter.status = query.status;
-        filter.approvedAt = {
-          $exists: true,
-          $ne: null,
-        };
-      } else {
-        filter.status = query.status;
-      }
+      filter.status =
+        query.status;
     }
 
     if (
@@ -109,53 +186,110 @@ export const ProductService = {
             "\\$&"
           );
 
-      andConditions.push({
-        $or: [
-          {
-            title: {
-              $regex: escaped,
-              $options: "i",
-            },
-          },
+      filter.$or = [
+        {
+          title: {
+            $regex:
+              escaped,
 
-          {
-            sellerName: {
-              $regex: escaped,
-              $options: "i",
-            },
+            $options:
+              "i",
           },
+        },
 
-          {
-            district: {
-              $regex: escaped,
-              $options: "i",
-            },
+        {
+          sellerName: {
+            $regex:
+              escaped,
+
+            $options:
+              "i",
           },
-        ],
-      });
+        },
+
+        {
+          sellerEmail: {
+            $regex:
+              escaped,
+
+            $options:
+              "i",
+          },
+        },
+
+        {
+          district: {
+            $regex:
+              escaped,
+
+            $options:
+              "i",
+          },
+        },
+      ];
     }
-
-    if (andConditions.length) {
-      filter.$and = andConditions;
-    }
-
 
     const [
       data,
       total,
-    ] = await Promise.all([
-      Product.find(filter)
-        .sort({
-          createdAt: -1,
-        })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+    ] =
+      await Promise.all([
+        Product.find(
+          filter
+        )
+          .sort({
+            createdAt:
+              -1,
+          })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
 
-      Product.countDocuments(
-        filter
-      ),
-    ]);
+        Product.countDocuments(
+          filter
+        ),
+      ]);
+
+    
+    const [
+      live,
+      outOfStock,
+      hidden,
+    ] =
+      await Promise.all([
+        Product.countDocuments(
+          {
+            isDeleted: {
+              $ne: true,
+            },
+
+            status:
+              "available",
+          }
+        ),
+
+        Product.countDocuments(
+          {
+            isDeleted: {
+              $ne: true,
+            },
+
+            status:
+              "out_of_stock",
+          }
+        ),
+
+        Product.countDocuments(
+          {
+            isDeleted: {
+              $ne: true,
+            },
+
+            status:
+              "disabled",
+          }
+        ),
+      ]);
 
     return {
       data,
@@ -170,16 +304,26 @@ export const ProductService = {
         totalPages:
           Math.max(
             Math.ceil(
-              total / limit
+              total /
+                limit
             ),
             1
           ),
+
+        counts: {
+          live,
+
+          outOfStock,
+
+          hidden,
+        },
       },
     };
   },
 
   async getAdminProductByIdFromDB(
-    productId: string
+    productId:
+      string
   ) {
     if (
       !isValidObjectId(
@@ -190,22 +334,26 @@ export const ProductService = {
     }
 
     return Product.findOne({
-      _id: productId,
+      _id:
+        productId,
 
       isDeleted: {
-        $ne: true,
+        $ne:
+          true,
       },
     }).lean();
   },
 
-  /**
-   * =====================================================
-   * APPROVE PRODUCT
-   * =====================================================
-   */
-  async approveProductInDB(
-    productId: string,
-    adminEmail?: string
+ 
+  async moderateProductInDB(
+    productId:
+      string,
+
+    reason:
+      string,
+
+    adminEmail?:
+      string
   ) {
     if (
       !isValidObjectId(
@@ -218,14 +366,30 @@ export const ProductService = {
       );
     }
 
-    const product =
-      await Product.findOne({
-        _id: productId,
+    const cleanReason =
+      reason?.trim();
 
-        isDeleted: {
-          $ne: true,
-        },
-      });
+    if (
+      !cleanReason
+    ) {
+      throw new AppError(
+        400,
+        "A moderation reason is required"
+      );
+    }
+
+    const product =
+      await Product.findOne(
+        {
+          _id:
+            productId,
+
+          isDeleted: {
+            $ne:
+              true,
+          },
+        }
+      );
 
     if (!product) {
       throw new AppError(
@@ -234,33 +398,16 @@ export const ProductService = {
       );
     }
 
-    if (
-      product.status ===
-      "disabled"
-    ) {
-      throw new AppError(
-        400,
-        "Disabled product cannot be approved"
-      );
-    }
-
-    if (
-      Number(product.quantity) <=
-      0
-    ) {
-      throw new AppError(
-        400,
-        "Product must have available quantity before approval"
-      );
-    }
-
     product.status =
-      "available";
+      "disabled";
 
-    product.approvedAt =
+    product.moderationReason =
+      cleanReason;
+
+    product.moderatedAt =
       new Date();
 
-    product.approvedBy =
+    product.moderatedBy =
       adminEmail;
 
     product.rejectionReason =
@@ -268,17 +415,25 @@ export const ProductService = {
 
     await product.save();
 
+    await notifySeller(
+      product,
+
+      "MARKETPLACE_PRODUCT_HIDDEN",
+
+      "Marketplace listing hidden",
+
+      `Your listing “${product.title}” was hidden by AgriNova moderation. Reason: ${cleanReason}`
+    );
+
     return product;
   },
 
-  /**
-   * =====================================================
-   * REJECT PRODUCT
-   * =====================================================
-   */
-  async rejectProductInDB(
-    productId: string,
-    reason?: string
+  async restoreProductInDB(
+    productId:
+      string,
+
+    adminEmail?:
+      string
   ) {
     if (
       !isValidObjectId(
@@ -292,13 +447,17 @@ export const ProductService = {
     }
 
     const product =
-      await Product.findOne({
-        _id: productId,
+      await Product.findOne(
+        {
+          _id:
+            productId,
 
-        isDeleted: {
-          $ne: true,
-        },
-      });
+          isDeleted: {
+            $ne:
+              true,
+          },
+        }
+      );
 
     if (!product) {
       throw new AppError(
@@ -307,150 +466,175 @@ export const ProductService = {
       );
     }
 
-    /**
-     * Rejection does not delete
-     * the product.
-     *
-     * Farmer can see it in My Listings.
-     */
     product.status =
-      "rejected";
+      Number(
+        product.quantity
+      ) > 0
+        ? "available"
+        : "out_of_stock";
 
-    product.approvedAt =
+    product.moderationReason =
       undefined;
 
-    product.approvedBy =
-      undefined;
+    product.moderatedAt =
+      new Date();
+
+    product.moderatedBy =
+      adminEmail;
 
     product.rejectionReason =
-      reason?.trim() ||
-      "Product rejected by admin";
+      undefined;
 
     await product.save();
+
+    await notifySeller(
+      product,
+
+      "MARKETPLACE_PRODUCT_RESTORED",
+
+      "Marketplace listing restored",
+
+      `Your listing “${product.title}” is active again on the AgriNova Marketplace.`
+    );
 
     return product;
   },
 
-  /**
-   * =====================================================
-   * DISABLE PRODUCT
-   * =====================================================
-   */
-  async disableProductInDB(
-    productId: string
+  
+  async removeProductInDB(
+    productId:
+      string,
+
+    reason:
+      string,
+
+    adminEmail?:
+      string
   ) {
     if (
       !isValidObjectId(
         productId
       )
     ) {
-      return null;
+      throw new AppError(
+        400,
+        "Invalid product ID"
+      );
     }
 
-    return Product.findOneAndUpdate(
-      {
-        _id: productId,
+    const cleanReason =
+      reason?.trim();
 
-        isDeleted: {
-          $ne: true,
-        },
-      },
-
-      {
-        $set: {
-          status: "disabled",
-        },
-      },
-
-      {
-        new: true,
-
-        runValidators: true,
-      }
-    );
-  },
-
-  /**
-   * =====================================================
-   * RESTORE PRODUCT
-   * =====================================================
-   */
-  async restoreProductInDB(
-    productId: string
-  ) {
     if (
-      !isValidObjectId(
-        productId
-      )
+      !cleanReason
     ) {
-      return null;
+      throw new AppError(
+        400,
+        "A removal reason is required"
+      );
     }
 
     const product =
-      await Product.findOne({
-        _id: productId,
+      await Product.findOne(
+        {
+          _id:
+            productId,
 
-        isDeleted: {
-          $ne: true,
-        },
-      });
+          isDeleted: {
+            $ne:
+              true,
+          },
+        }
+      );
 
     if (!product) {
-      return null;
+      throw new AppError(
+        404,
+        "Product not found"
+      );
     }
 
-    /*
-     * Restore never bypasses moderation. The farmer/admin must
-     * review the listing and approve it again before it becomes public.
-     */
-    product.status = "pending";
-    product.approvedAt = undefined;
-    product.approvedBy = undefined;
-    product.rejectionReason = undefined;
+    product.isDeleted =
+      true;
+
+    product.status =
+      "disabled";
+
+    product.moderationReason =
+      cleanReason;
+
+    product.moderatedAt =
+      new Date();
+
+    product.moderatedBy =
+      adminEmail;
 
     await product.save();
+
+    await notifySeller(
+      product,
+
+      "MARKETPLACE_PRODUCT_REMOVED",
+
+      "Marketplace listing removed",
+
+      `Your listing “${product.title}” was removed from AgriNova. Reason: ${cleanReason}`
+    );
 
     return product;
   },
 
-  /**
-   * =====================================================
-   * REMOVE PRODUCT
-   * =====================================================
-   */
-  async removeProductInDB(
-    productId: string
+  
+  async disableProductInDB(
+    productId:
+      string,
+
+    reason?:
+      string,
+
+    adminEmail?:
+      string
   ) {
-    if (
-      !isValidObjectId(
-        productId
-      )
-    ) {
-      return null;
-    }
+    return this.moderateProductInDB(
+      productId,
 
-    return Product.findOneAndUpdate(
-      {
-        _id: productId,
+      reason?.trim() ||
+        "Listing hidden by AgriNova moderation.",
 
-        isDeleted: {
-          $ne: true,
-        },
-      },
+      adminEmail
+    );
+  },
 
-      {
-        $set: {
-          isDeleted: true,
+  async approveProductInDB(
+    productId:
+      string,
 
-          status: "disabled",
-        },
-      },
+    adminEmail?:
+      string
+  ) {
+    return this.restoreProductInDB(
+      productId,
+      adminEmail
+    );
+  },
 
-      {
-        new: true,
+  async rejectProductInDB(
+    productId:
+      string,
 
-        runValidators: true,
-      }
+    reason?:
+      string,
+
+    adminEmail?:
+      string
+  ) {
+    return this.moderateProductInDB(
+      productId,
+
+      reason?.trim() ||
+        "Listing hidden by AgriNova moderation.",
+
+      adminEmail
     );
   },
 };

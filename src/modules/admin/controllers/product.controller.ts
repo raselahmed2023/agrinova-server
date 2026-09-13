@@ -1,322 +1,127 @@
-import {
-  Request,
-  Response,
-} from "express";
+import { Request, Response } from "express";
 
 import httpStatus from "http-status";
 import AppError from "../../../utils/AppError";
 import catchAsync from "../../../utils/catchAsync";
 import sendResponse from "../../../utils/sendResponse";
+import { AdminService } from "../admin.service";
 
-import {
-  AdminService,
-} from "../admin.service";
+const getReason = (req: Request) =>
+  typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
 
 export const ProductController = {
- 
-  getAdminProducts:
-    catchAsync(
-      async (
-        req: Request,
-        res: Response
-      ) => {
-        const result =
-          await AdminService.getAdminProductsFromDB(
-            req.query
-          );
+  getAdminProducts: catchAsync(async (req: Request, res: Response) => {
+    const result = await AdminService.getAdminProductsFromDB(req.query);
 
-        sendResponse(
-          res,
-          {
-            statusCode:
-              200,
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Marketplace products retrieved successfully",
+      meta: result.meta,
+      data: result.data,
+    });
+  }),
 
-            success:
-              true,
+  getAdminProductById: catchAsync(async (req: Request, res: Response) => {
+    const product = await AdminService.getAdminProductByIdFromDB(
+      String(req.params.productId)
+    );
 
-            message:
-              "Products retrieved successfully",
+    if (!product) {
+      throw new AppError(httpStatus.NOT_FOUND, "Product not found");
+    }
 
-            meta:
-              result.meta,
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Product details retrieved successfully",
+      data: product,
+    });
+  }),
 
-            data:
-              result.data,
-          }
-        );
-      }
-    ),
+  moderateProduct: catchAsync(async (req: Request, res: Response) => {
+    const product = await AdminService.moderateProductInDB(
+      String(req.params.productId),
+      getReason(req),
+      req.user?.email
+    );
 
- 
-  getAdminProductById:
-    catchAsync(
-      async (
-        req: Request,
-        res: Response
-      ) => {
-        const productId =
-          String(
-            req.params
-              .productId
-          );
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Product hidden and farmer notified",
+      data: product,
+    });
+  }),
 
-        const product =
-          await AdminService.getAdminProductByIdFromDB(
-            productId
-          );
+  restoreProduct: catchAsync(async (req: Request, res: Response) => {
+    const product = await AdminService.restoreProductInDB(
+      String(req.params.productId),
+      req.user?.email
+    );
 
-        if (!product) {
-          throw new AppError(
-            httpStatus.NOT_FOUND,
-            "Product not found"
-          );
-        }
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Product restored and farmer notified",
+      data: product,
+    });
+  }),
 
-        sendResponse(
-          res,
-          {
-            statusCode:
-              200,
+  removeProduct: catchAsync(async (req: Request, res: Response) => {
+    const product = await AdminService.removeProductInDB(
+      String(req.params.productId),
+      getReason(req),
+      req.user?.email
+    );
 
-            success:
-              true,
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Product removed and farmer notified",
+      data: product,
+    });
+  }),
 
-            message:
-              "Product details retrieved successfully",
+  /** Legacy endpoints retained so older builds do not hard-fail. */
+  approveProduct: catchAsync(async (req: Request, res: Response) => {
+    const product = await AdminService.restoreProductInDB(
+      String(req.params.productId),
+      req.user?.email
+    );
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Product restored successfully",
+      data: product,
+    });
+  }),
 
-            data:
-              product,
-          }
-        );
-      }
-    ),
+  rejectProduct: catchAsync(async (req: Request, res: Response) => {
+    const product = await AdminService.moderateProductInDB(
+      String(req.params.productId),
+      getReason(req) || "Listing hidden by AgriNova moderation.",
+      req.user?.email
+    );
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Product hidden and farmer notified",
+      data: product,
+    });
+  }),
 
-  
-  approveProduct:
-    catchAsync(
-      async (
-        req: Request,
-        res: Response
-      ) => {
-        const productId =
-          String(
-            req.params
-              .productId
-          );
-
-        const adminEmail =
-          req.user?.email;
-
-        const product =
-          await AdminService.approveProductInDB(
-            productId,
-            adminEmail
-          );
-
-        sendResponse(
-          res,
-          {
-            statusCode:
-              200,
-
-            success:
-              true,
-
-            message:
-              "Product approved successfully",
-
-            data:
-              product,
-          }
-        );
-      }
-    ),
-
-  
-  rejectProduct:
-    catchAsync(
-      async (
-        req: Request,
-        res: Response
-      ) => {
-        const productId =
-          String(
-            req.params
-              .productId
-          );
-
-        const reason =
-          typeof req.body
-            ?.reason ===
-          "string"
-            ? req.body.reason
-            : undefined;
-
-        const product =
-          await AdminService.rejectProductInDB(
-            productId,
-            reason
-          );
-
-        sendResponse(
-          res,
-          {
-            statusCode:
-              200,
-
-            success:
-              true,
-
-            message:
-              "Product rejected successfully",
-
-            data:
-              product,
-          }
-        );
-      }
-    ),
-
-  /**
-   */
-  disableProduct:
-    catchAsync(
-      async (
-        req: Request,
-        res: Response
-      ) => {
-        const productId =
-          String(
-            req.params
-              .productId
-          );
-
-        const updatedProduct =
-          await AdminService.disableProductInDB(
-            productId
-          );
-
-        if (
-          !updatedProduct
-        ) {
-          throw new AppError(
-            404,
-            "Product not found"
-          );
-        }
-
-        sendResponse(
-          res,
-          {
-            statusCode:
-              200,
-
-            success:
-              true,
-
-            message:
-              "Product disabled successfully",
-
-            data:
-              updatedProduct,
-          }
-        );
-      }
-    ),
-
-  /**
-   */
-  restoreProduct:
-    catchAsync(
-      async (
-        req: Request,
-        res: Response
-      ) => {
-        const productId =
-          String(
-            req.params
-              .productId
-          );
-
-        const updatedProduct =
-          await AdminService.restoreProductInDB(
-            productId
-          );
-
-        if (
-          !updatedProduct
-        ) {
-          throw new AppError(
-            404,
-            "Product not found"
-          );
-        }
-
-        sendResponse(
-          res,
-          {
-            statusCode:
-              200,
-
-            success:
-              true,
-
-            message:
-              "Product restored successfully",
-
-            data:
-              updatedProduct,
-          }
-        );
-      }
-    ),
-
-  /**
-   * REMOVE PRODUCT
-
-   */
-  removeProduct:
-    catchAsync(
-      async (
-        req: Request,
-        res: Response
-      ) => {
-        const productId =
-          String(
-            req.params
-              .productId
-          );
-
-        const updatedProduct =
-          await AdminService.removeProductInDB(
-            productId
-          );
-
-        if (
-          !updatedProduct
-        ) {
-          throw new AppError(
-            404,
-            "Product not found"
-          );
-        }
-
-        sendResponse(
-          res,
-          {
-            statusCode:
-              200,
-
-            success:
-              true,
-
-            message:
-              "Product removed successfully",
-
-            data:
-              updatedProduct,
-          }
-        );
-      }
-    ),
+  disableProduct: catchAsync(async (req: Request, res: Response) => {
+    const product = await AdminService.moderateProductInDB(
+      String(req.params.productId),
+      getReason(req) || "Listing hidden by AgriNova moderation.",
+      req.user?.email
+    );
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Product hidden and farmer notified",
+      data: product,
+    });
+  }),
 };

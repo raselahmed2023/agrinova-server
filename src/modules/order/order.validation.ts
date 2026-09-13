@@ -1,5 +1,33 @@
 import { z } from "zod";
 
+const positiveIntegerString = z
+  .string()
+  .regex(
+    /^\d+$/,
+    "Must be a positive integer"
+  )
+  .refine(
+    (value) =>
+      Number(value) > 0,
+    {
+      message:
+        "Must be a positive integer",
+    }
+  );
+
+const getMyOrdersQueryValidationSchema =
+  z.object({
+    query: z
+      .object({
+        page:
+          positiveIntegerString.optional(),
+
+        limit:
+          positiveIntegerString.optional(),
+      })
+      .optional(),
+  });
+
 const shippingAddressSchema =
   z.object({
     fullName: z
@@ -128,6 +156,8 @@ const updateFulfillmentValidationSchema =
   });
 
 export const OrderValidation = {
+  getMyOrdersQueryValidationSchema,
+
   createOrderValidationSchema,
 
   updateOrderStatusValidationSchema,

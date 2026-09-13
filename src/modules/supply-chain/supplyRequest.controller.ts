@@ -12,7 +12,8 @@ import {
 
 const getRequestId = (
   requestId:
-    string | string[]
+    | string
+    | string[]
 ): string => {
   if (
     Array.isArray(
@@ -64,6 +65,7 @@ const getAllSupplyRequests =
       sendResponse(res, {
         statusCode: 200,
         success: true,
+
         message:
           "Supply requests fetched successfully",
 
@@ -72,6 +74,28 @@ const getAllSupplyRequests =
 
         data:
           result.data,
+      });
+    }
+  );
+
+const getSupplyRequestStats =
+  catchAsync(
+    async (
+      _req: Request,
+      res: Response
+    ) => {
+      const result =
+        await SupplyRequestService
+          .getSupplyRequestStatsFromDB();
+
+      sendResponse(res, {
+        statusCode: 200,
+        success: true,
+
+        message:
+          "Supply request stats fetched successfully",
+
+        data: result,
       });
     }
   );
@@ -97,8 +121,10 @@ const getSupplyRequestById =
       sendResponse(res, {
         statusCode: 200,
         success: true,
+
         message:
           "Supply request fetched successfully",
+
         data: result,
       });
     }
@@ -125,8 +151,10 @@ const trackSupplyRequest =
       sendResponse(res, {
         statusCode: 200,
         success: true,
+
         message:
           "Supply request status retrieved successfully",
+
         data: result,
       });
     }
@@ -159,8 +187,10 @@ const updateSupplyRequestStatus =
       sendResponse(res, {
         statusCode: 200,
         success: true,
+
         message:
           "Supply request status updated successfully",
+
         data: result,
       });
     }
@@ -169,8 +199,14 @@ const updateSupplyRequestStatus =
 export const SupplyRequestController =
   {
     createSupplyRequest,
+
     getAllSupplyRequests,
+
+    getSupplyRequestStats,
+
     getSupplyRequestById,
+
     trackSupplyRequest,
+
     updateSupplyRequestStatus,
   };

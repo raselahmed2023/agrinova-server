@@ -72,6 +72,19 @@ router.get(
 );
 
 router.get(
+  "/requests/stats",
+
+  authenticate,
+
+  authorize(
+    "ADMIN"
+  ),
+
+  SupplyRequestController
+    .getSupplyRequestStats
+);
+
+router.get(
   "/requests/:requestId",
 
   authenticate,

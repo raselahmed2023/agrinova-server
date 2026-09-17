@@ -254,4 +254,29 @@ router.post(
   CommunityController.addReply
 );
 
+
+router.delete(
+  "/posts/:postId/comments/:commentId",
+
+  authenticate,
+
+  authorize(
+    "FARMER"
+  ),
+
+  CommunityController.deleteComment
+);
+
+router.delete(
+  "/posts/:postId/comments/:commentId/replies/:replyId",
+
+  authenticate,
+
+  authorize(
+    "FARMER"
+  ),
+
+  CommunityController.deleteReply
+);
+
 export default router;

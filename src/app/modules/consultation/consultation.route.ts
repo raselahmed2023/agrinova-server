@@ -11,6 +11,7 @@ const router = Router();
 router.post(
   "/",
   authenticate,
+  authorize("FARMER", "ADMIN"),
   validateRequest(ConsultationValidations.createConsultationValidationSchema),
   ConsultationControllers.createConsultation
 );
@@ -111,6 +112,7 @@ router.patch(
 router.patch(
   "/:consultationId/status",
   authenticate,
+  authorize("ADMIN"),
   validateRequest(ConsultationValidations.updateStatusValidationSchema),
   ConsultationControllers.updateConsultationStatus
 );

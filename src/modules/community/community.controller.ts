@@ -176,7 +176,7 @@ const toggleLike =
               .postId
           ),
 
-          user.id
+          user
         );
 
       sendResponse(res, {
@@ -269,6 +269,92 @@ const addReply =
 
         message:
           "Reply added",
+
+        data:
+          result,
+      });
+    }
+  );
+
+
+const deleteComment =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      const user =
+        requireUser(req);
+
+      const result =
+        await CommunityService.deleteCommentInDB(
+          String(
+            req.params
+              .postId
+          ),
+
+          String(
+            req.params
+              .commentId
+          ),
+
+          user.id
+        );
+
+      sendResponse(res, {
+        statusCode:
+          200,
+
+        success:
+          true,
+
+        message:
+          "Comment deleted",
+
+        data:
+          result,
+      });
+    }
+  );
+
+const deleteReply =
+  catchAsync(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+      const user =
+        requireUser(req);
+
+      const result =
+        await CommunityService.deleteReplyInDB(
+          String(
+            req.params
+              .postId
+          ),
+
+          String(
+            req.params
+              .commentId
+          ),
+
+          String(
+            req.params
+              .replyId
+          ),
+
+          user.id
+        );
+
+      sendResponse(res, {
+        statusCode:
+          200,
+
+        success:
+          true,
+
+        message:
+          "Reply deleted",
 
         data:
           result,
@@ -526,6 +612,8 @@ export const CommunityController = {
 
   addComment,
   addReply,
+  deleteComment,
+  deleteReply,
 
   getFarmerProfile,
 

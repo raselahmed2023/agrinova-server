@@ -4,15 +4,7 @@ import {
   Farm,
 } from "../../../app/modules/farm/farm.model";
 
-import {
-  Consultation,
-} from "../../../app/modules/consultation/consultation.model";
-
-import {
-  Product,
-} from "../../product/product.model";
-
-const getUserCollection =
+const getUserModel =
   () =>
     mongoose.connection
       .useDb(
@@ -26,11 +18,36 @@ const getUserCollection =
         "user"
       );
 
+const getMainDb =
+  () =>
+    mongoose.connection.useDb(
+      "agrinova",
+      {
+        useCache:
+          true,
+      }
+    );
+
 export const AnalyticsService =
   {
+
+
     async getDashboardStatsFromDB() {
       const userCollection =
-        getUserCollection();
+        getUserModel();
+
+      const mainConn =
+        getMainDb();
+
+      const productCollection =
+        mainConn.collection(
+          "products"
+        );
+
+      const consultationCollection =
+        mainConn.collection(
+          "consultations"
+        );
 
       const [
         totalFarmers,
@@ -46,75 +63,122 @@ export const AnalyticsService =
         totalConsultations,
 
         recentUsers,
+
+        recentExperts,
+
+        recentListings,
+
+        recentConsultations,
       ] =
-        await Promise.all(
-          [
-            userCollection.countDocuments(
-              {
-                role:
-                  "FARMER",
-              }
-            ),
+        await Promise.all([
+          userCollection.countDocuments(
+            {
+              role:
+                "FARMER",
+            }
+          ),
 
-            userCollection.countDocuments(
-              {
-                role:
-                  "EXPERT",
-              }
-            ),
+          userCollection.countDocuments(
+            {
+              role:
+                "EXPERT",
+            }
+          ),
 
-            userCollection.countDocuments(
-              {
-                role:
-                  "EXPERT",
+          userCollection.countDocuments(
+            {
+              role:
+                "EXPERT",
 
+              status:
+                "PENDING",
+            }
+          ),
+
+
+          Farm.countDocuments(),
+
+          productCollection
+            .countDocuments(
+              {
                 status:
-                  "PENDING",
+                  "ACTIVE",
               }
+            )
+            .catch(
+              () => 0
             ),
 
-            Farm.countDocuments(),
-
-           
-            Product.countDocuments(
-              {
-                status:
-                  "available",
-
-                isDeleted: {
-                  $ne:
-                    true,
-                },
-              }
+          consultationCollection
+            .countDocuments()
+            .catch(
+              () => 0
             ),
 
-            Consultation.countDocuments(),
+          userCollection
+            .find({})
+            .sort({
+              createdAt:
+                -1,
+            })
+            .limit(
+              5
+            )
+            .project({
+              password:
+                0,
+            })
+            .toArray(),
 
-            
-            userCollection
-              .find({})
-              .sort({
-                createdAt:
-                  -1,
-              })
-              .limit(5)
-              .project({
-                _id: 1,
+          userCollection
+            .find({
+              role:
+                "EXPERT",
 
-                name: 1,
+              status:
+                "PENDING",
+            })
+            .sort({
+              createdAt:
+                -1,
+            })
+            .limit(
+              5
+            )
+            .project({
+              password:
+                0,
+            })
+            .toArray(),
 
-                email: 1,
+          productCollection
+            .find({})
+            .sort({
+              createdAt:
+                -1,
+            })
+            .limit(
+              5
+            )
+            .toArray()
+            .catch(
+              () => []
+            ),
 
-                role: 1,
-
-                status: 1,
-
-                createdAt:
-                  1,
-              })
-              .toArray(),
-          ]
-        );
+          consultationCollection
+            .find({})
+            .sort({
+              createdAt:
+                -1,
+            })
+            .limit(
+              5
+            )
+            .toArray()
+            .catch(
+              () => []
+            ),
+        ]);
 
       return {
         totalFarmers,
@@ -130,12 +194,33 @@ export const AnalyticsService =
         totalConsultations,
 
         recentUsers,
+
+        recentExperts,
+
+        recentListings,
+
+        recentConsultations,
       };
     },
 
+
+
     async getAdminAnalyticsFromDB() {
       const userCollection =
-        getUserCollection();
+        getUserModel();
+
+      const mainConn =
+        getMainDb();
+
+      const productCollection =
+        mainConn.collection(
+          "products"
+        );
+
+      const consultationCollection =
+        mainConn.collection(
+          "consultations"
+        );
 
       const [
         farmers,
@@ -146,228 +231,147 @@ export const AnalyticsService =
 
         totalFarms,
 
-        activeFarms,
-
-        inactiveFarms,
-
         activeProducts,
 
-        pendingProducts,
-
-        outOfStockProducts,
-
         disabledProducts,
-
-        removedProducts,
 
         pendingConsultations,
 
         acceptedConsultations,
 
-        scheduledConsultations,
-
         ongoingConsultations,
 
         completedConsultations,
 
-        rejectedConsultations,
-
-        cancelledConsultations,
-
-        pendingExpertApprovals,
+        pendingApprovals,
 
         approvedExperts,
 
         rejectedExperts,
-
-        blockedExperts,
       ] =
-        await Promise.all(
-          [
-            userCollection.countDocuments(
-              {
-                role:
-                  "FARMER",
-              }
-            ),
+        await Promise.all([
+          userCollection.countDocuments(
+            {
+              role:
+                "FARMER",
+            }
+          ),
 
-            userCollection.countDocuments(
-              {
-                role:
-                  "EXPERT",
-              }
-            ),
+          userCollection.countDocuments(
+            {
+              role:
+                "EXPERT",
+            }
+          ),
 
-            userCollection.countDocuments(
-              {
-                role:
-                  "ADMIN",
-              }
-            ),
+          userCollection.countDocuments(
+            {
+              role:
+                "ADMIN",
+            }
+          ),
 
-            Farm.countDocuments(),
+          /**
+           * Same Farm model.
+           */
+          Farm.countDocuments(),
 
-            Farm.countDocuments(
-              {
-                status:
-                  "Active",
-              }
-            ),
-
-            Farm.countDocuments(
+          productCollection
+            .countDocuments(
               {
                 status:
-                  "Inactive",
+                  "ACTIVE",
               }
+            )
+            .catch(
+              () => 0
             ),
 
-            
-            Product.countDocuments(
+          productCollection
+            .countDocuments(
               {
                 status:
-                  "available",
-
-                isDeleted: {
-                  $ne:
-                    true,
-                },
+                  "DISABLED",
               }
+            )
+            .catch(
+              () => 0
             ),
 
-           
-            Product.countDocuments(
-              {
-                status:
-                  "pending",
-
-                isDeleted: {
-                  $ne:
-                    true,
-                },
-              }
-            ),
-
-            Product.countDocuments(
-              {
-                status:
-                  "out_of_stock",
-
-                isDeleted: {
-                  $ne:
-                    true,
-                },
-              }
-            ),
-
-            Product.countDocuments(
-              {
-                status:
-                  "disabled",
-
-                isDeleted: {
-                  $ne:
-                    true,
-                },
-              }
-            ),
-
-            Product.countDocuments(
-              {
-                isDeleted:
-                  true,
-              }
-            ),
-
-            Consultation.countDocuments(
+          consultationCollection
+            .countDocuments(
               {
                 status:
                   "PENDING",
               }
+            )
+            .catch(
+              () => 0
             ),
 
-            Consultation.countDocuments(
+          consultationCollection
+            .countDocuments(
               {
                 status:
                   "ACCEPTED",
               }
+            )
+            .catch(
+              () => 0
             ),
 
-            Consultation.countDocuments(
-              {
-                status:
-                  "SCHEDULED",
-              }
-            ),
-
-            Consultation.countDocuments(
+          consultationCollection
+            .countDocuments(
               {
                 status:
                   "ONGOING",
               }
+            )
+            .catch(
+              () => 0
             ),
 
-            Consultation.countDocuments(
+          consultationCollection
+            .countDocuments(
               {
                 status:
                   "COMPLETED",
               }
+            )
+            .catch(
+              () => 0
             ),
 
-            Consultation.countDocuments(
-              {
-                status:
-                  "REJECTED",
-              }
-            ),
+          userCollection.countDocuments(
+            {
+              role:
+                "EXPERT",
 
-            Consultation.countDocuments(
-              {
-                status:
-                  "CANCELLED",
-              }
-            ),
+              status:
+                "PENDING",
+            }
+          ),
 
-            userCollection.countDocuments(
-              {
-                role:
-                  "EXPERT",
+          userCollection.countDocuments(
+            {
+              role:
+                "EXPERT",
 
-                status:
-                  "PENDING",
-              }
-            ),
+              status:
+                "APPROVED",
+            }
+          ),
 
-            userCollection.countDocuments(
-              {
-                role:
-                  "EXPERT",
+          userCollection.countDocuments(
+            {
+              role:
+                "EXPERT",
 
-                status:
-                  "APPROVED",
-              }
-            ),
-
-            userCollection.countDocuments(
-              {
-                role:
-                  "EXPERT",
-
-                status:
-                  "REJECTED",
-              }
-            ),
-
-            userCollection.countDocuments(
-              {
-                role:
-                  "EXPERT",
-
-                status:
-                  "BLOCKED",
-              }
-            ),
-          ]
-        );
+              status:
+                "REJECTED",
+            }
+          ),
+        ]);
 
       return {
         users: {
@@ -381,29 +385,14 @@ export const AnalyticsService =
         farms: {
           total:
             totalFarms,
-
-          active:
-            activeFarms,
-
-          inactive:
-            inactiveFarms,
         },
 
         marketplace: {
           active:
             activeProducts,
 
-          pending:
-            pendingProducts,
-
-          outOfStock:
-            outOfStockProducts,
-
           disabled:
             disabledProducts,
-
-          removed:
-            removedProducts,
         },
 
         consultations: {
@@ -413,34 +402,22 @@ export const AnalyticsService =
           accepted:
             acceptedConsultations,
 
-          scheduled:
-            scheduledConsultations,
-
           ongoing:
             ongoingConsultations,
 
           completed:
             completedConsultations,
-
-          rejected:
-            rejectedConsultations,
-
-          cancelled:
-            cancelledConsultations,
         },
 
         expertApprovals: {
           pending:
-            pendingExpertApprovals,
+            pendingApprovals,
 
           approved:
             approvedExperts,
 
           rejected:
             rejectedExperts,
-
-          blocked:
-            blockedExperts,
         },
       };
     },

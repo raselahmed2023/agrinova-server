@@ -9,6 +9,10 @@ import {
 import AppError from "../../utils/AppError";
 
 import {
+  NotificationService,
+} from "../notification/notification.service";
+
+import {
   ISupplyRequest,
   ISupplyRequestQuery,
   TSupplyStatus,
@@ -18,6 +22,28 @@ import {
   SupplyRequest,
 } from "./supplyRequest.model";
 
+type TCreateSupplyRequestPayload =
+  Omit<
+    ISupplyRequest,
+    | "trackingCode"
+    | "status"
+    | "adminNote"
+    | "acceptedAt"
+    | "rejectedAt"
+    | "receivedAt"
+    | "completedAt"
+    | "createdAt"
+    | "updatedAt"
+  >;
+
+interface IFarmerSupplyQuery {
+  status?: string;
+
+  page?: string;
+
+  limit?: string;
+}
+
 const generateTrackingCode =
   async () => {
     for (
@@ -26,17 +52,25 @@ const generateTrackingCode =
       attempt++
     ) {
       const code =
-        `AGN-${randomBytes(4)
-          .toString("hex")
+        `AGN-${randomBytes(
+          4
+        )
+          .toString(
+            "hex"
+          )
           .toUpperCase()}`;
 
       const exists =
-        await SupplyRequest.exists({
-          trackingCode:
-            code,
-        });
+        await SupplyRequest.exists(
+          {
+            trackingCode:
+              code,
+          }
+        );
 
-      if (!exists) {
+      if (
+        !exists
+      ) {
         return code;
       }
     }
@@ -47,33 +81,131 @@ const generateTrackingCode =
     );
   };
 
+
+const sendSupplyNotification =
+  async ({
+    userId,
+    type,
+    title,
+    message,
+    requestId,
+    trackingCode,
+    status,
+  }: {
+    userId: string;
+
+    type:
+      | "SUPPLY_REQUEST_SUBMITTED"
+      | "SUPPLY_REQUEST_ACCEPTED"
+      | "SUPPLY_REQUEST_REJECTED"
+      | "SUPPLY_REQUEST_RECEIVED"
+      | "SUPPLY_REQUEST_COMPLETED";
+
+    title: string;
+
+    message: string;
+
+    requestId: string;
+
+    trackingCode: string;
+
+    status:
+      TSupplyStatus;
+  }) => {
+    try {
+      await NotificationService
+        .createNotification(
+          {
+            userId,
+
+            type,
+
+            title,
+
+            message,
+
+            /**
+             * User can click notification and
+             * return to B2B Support.
+             */
+            href:
+              "/support",
+
+            data: {
+              requestId,
+
+              trackingCode,
+
+              status,
+            },
+          }
+        );
+    } catch (
+      error
+    ) {
+      console.error(
+        "B2B notification creation failed:",
+        error
+      );
+    }
+  };
+
+
+
 const createSupplyRequestInDB =
   async (
-    payload: Omit<
-      ISupplyRequest,
-      | "trackingCode"
-      | "status"
-      | "adminNote"
-      | "acceptedAt"
-      | "rejectedAt"
-      | "receivedAt"
-      | "completedAt"
-    >
+    payload:
+      TCreateSupplyRequestPayload
   ) => {
     const trackingCode =
       await generateTrackingCode();
 
-    return SupplyRequest.create({
-      ...payload,
+    const result =
+      await SupplyRequest.create(
+        {
+          ...payload,
 
-      trackingCode,
+          trackingCode,
 
-      status:
-        "SUBMITTED",
+          status:
+            "SUBMITTED",
 
-      adminNote: "",
-    });
+          adminNote:
+            "",
+        }
+      );
+
+    await sendSupplyNotification(
+      {
+        userId:
+          result.farmerId,
+
+        type:
+          "SUPPLY_REQUEST_SUBMITTED",
+
+        title:
+          "Product submitted to AgriNova",
+
+        message:
+          `Your ${result.productName} supply request was submitted successfully. Tracking ID: ${result.trackingCode}.`,
+
+        requestId:
+          String(
+            result._id
+          ),
+
+        trackingCode:
+          result.trackingCode,
+
+        status:
+          result.status,
+      }
+    );
+
+    return result;
   };
+
+
 
 const getAllSupplyRequestsFromDB =
   async (
@@ -83,7 +215,7 @@ const getAllSupplyRequestsFromDB =
     const filter:
       Record<
         string,
-        any
+        unknown
       > = {};
 
     if (
@@ -125,6 +257,16 @@ const getAllSupplyRequestsFromDB =
 
         {
           farmerName: {
+            $regex:
+              escaped,
+
+            $options:
+              "i",
+          },
+        },
+
+        {
+          farmerEmail: {
             $regex:
               escaped,
 
@@ -185,7 +327,9 @@ const getAllSupplyRequestsFromDB =
       );
 
     const skip =
-      (page - 1) *
+      (
+        page - 1
+      ) *
       limit;
 
     const [
@@ -197,10 +341,15 @@ const getAllSupplyRequestsFromDB =
           filter
         )
           .sort({
-            createdAt: -1,
+            createdAt:
+              -1,
           })
-          .skip(skip)
-          .limit(limit)
+          .skip(
+            skip
+          )
+          .limit(
+            limit
+          )
           .lean(),
 
         SupplyRequest.countDocuments(
@@ -211,7 +360,9 @@ const getAllSupplyRequestsFromDB =
     return {
       meta: {
         page,
+
         limit,
+
         total,
 
         totalPages:
@@ -228,62 +379,109 @@ const getAllSupplyRequestsFromDB =
     };
   };
 
-const getSupplyRequestStatsFromDB =
-  async () => {
-    const grouped =
-      await SupplyRequest.aggregate([
-        {
-          $group: {
-            _id:
-              "$status",
 
-            count: {
-              $sum: 1,
-            },
-          },
-        },
-      ]);
 
-    const stats = {
-      SUBMITTED:
-        0,
+const getMySupplyRequestsFromDB =
+  async (
+    farmerId:
+      string,
 
-      ACCEPTED:
-        0,
+    query:
+      IFarmerSupplyQuery
+  ) => {
+    const filter:
+      Record<
+        string,
+        unknown
+      > = {
+        farmerId,
+      };
 
-      REJECTED:
-        0,
-
-      RECEIVED:
-        0,
-
-      COMPLETED:
-        0,
-    };
-
-    for (
-      const item of
-      grouped
+    if (
+      query.status
     ) {
-      const key =
-        item._id as keyof typeof stats;
-
-      if (
-        key in stats
-      ) {
-        stats[key] =
-          Number(
-            item.count
-          ) || 0;
-      }
+      filter.status =
+        query.status;
     }
 
-    return stats;
+    const page =
+      Math.max(
+        Number(
+          query.page
+        ) || 1,
+        1
+      );
+
+    const limit =
+      Math.min(
+        Math.max(
+          Number(
+            query.limit
+          ) || 20,
+          1
+        ),
+        50
+      );
+
+    const skip =
+      (
+        page - 1
+      ) *
+      limit;
+
+    const [
+      data,
+      total,
+    ] =
+      await Promise.all([
+        SupplyRequest.find(
+          filter
+        )
+          .sort({
+            createdAt:
+              -1,
+          })
+          .skip(
+            skip
+          )
+          .limit(
+            limit
+          )
+          .lean(),
+
+        SupplyRequest.countDocuments(
+          filter
+        ),
+      ]);
+
+    return {
+      meta: {
+        page,
+
+        limit,
+
+        total,
+
+        totalPages:
+          Math.max(
+            Math.ceil(
+              total /
+                limit
+            ),
+            1
+          ),
+      },
+
+      data,
+    };
   };
+
+
 
 const getSupplyRequestByIdFromDB =
   async (
-    requestId: string
+    requestId:
+      string
   ) => {
     if (
       !isValidObjectId(
@@ -301,7 +499,9 @@ const getSupplyRequestByIdFromDB =
         requestId
       );
 
-    if (!result) {
+    if (
+      !result
+    ) {
       throw new AppError(
         404,
         "Supply request not found"
@@ -311,23 +511,38 @@ const getSupplyRequestByIdFromDB =
     return result;
   };
 
+
+
 const trackSupplyRequestFromDB =
   async (
-    trackingCode: string
+    farmerId:
+      string,
+
+    trackingCode:
+      string
   ) => {
+    const normalizedTrackingCode =
+      trackingCode
+        .trim()
+        .toUpperCase();
+
     const result =
-      await SupplyRequest.findOne({
-        trackingCode:
-          trackingCode
-            .trim()
-            .toUpperCase(),
-      })
+      await SupplyRequest.findOne(
+        {
+          farmerId,
+
+          trackingCode:
+            normalizedTrackingCode,
+        }
+      )
         .select(
           "-phone"
         )
         .lean();
 
-    if (!result) {
+    if (
+      !result
+    ) {
       throw new AppError(
         404,
         "No supply request found with this tracking code"
@@ -336,6 +551,8 @@ const trackSupplyRequestFromDB =
 
     return result;
   };
+
+
 
 const allowedTransitions:
   Record<
@@ -351,23 +568,184 @@ const allowedTransitions:
       "RECEIVED",
     ],
 
-    REJECTED: [],
+    REJECTED:
+      [],
 
     RECEIVED: [
       "COMPLETED",
     ],
 
-    COMPLETED: [],
+    COMPLETED:
+      [],
   };
+
+
+
+const createStatusNotification =
+  async (
+    request:
+      ISupplyRequest & {
+        _id:
+          unknown;
+      }
+  ) => {
+    const requestId =
+      String(
+        request._id
+      );
+
+    const trackingCode =
+      request.trackingCode;
+
+    /**
+     * ACCEPTED
+     */
+    if (
+      request.status ===
+      "ACCEPTED"
+    ) {
+      await sendSupplyNotification(
+        {
+          userId:
+            request.farmerId,
+
+          type:
+            "SUPPLY_REQUEST_ACCEPTED",
+
+          title:
+            "Product request accepted",
+
+          message:
+            `AgriNova accepted your ${request.productName} request (${trackingCode}). You may now prepare the product for delivery to the selected AgriNova branch.`,
+
+          requestId,
+
+          trackingCode,
+
+          status:
+            request.status,
+        }
+      );
+
+      return;
+    }
+
+    /**
+     * REJECTED
+     */
+    if (
+      request.status ===
+      "REJECTED"
+    ) {
+      const reason =
+        request.adminNote
+          ?.trim();
+
+      await sendSupplyNotification(
+        {
+          userId:
+            request.farmerId,
+
+          type:
+            "SUPPLY_REQUEST_REJECTED",
+
+          title:
+            "Product request rejected",
+
+          message:
+            reason
+              ? `Your ${request.productName} request (${trackingCode}) was rejected. Reason: ${reason}`
+              : `Your ${request.productName} request (${trackingCode}) was rejected.`,
+
+          requestId,
+
+          trackingCode,
+
+          status:
+            request.status,
+        }
+      );
+
+      return;
+    }
+
+    /**
+     * RECEIVED
+     */
+    if (
+      request.status ===
+      "RECEIVED"
+    ) {
+      await sendSupplyNotification(
+        {
+          userId:
+            request.farmerId,
+
+          type:
+            "SUPPLY_REQUEST_RECEIVED",
+
+          title:
+            "Product received by AgriNova",
+
+          message:
+            `AgriNova confirmed receipt of your ${request.productName} supply (${trackingCode}).`,
+
+          requestId,
+
+          trackingCode,
+
+          status:
+            request.status,
+        }
+      );
+
+      return;
+    }
+
+    /**
+     * COMPLETED
+     */
+    if (
+      request.status ===
+      "COMPLETED"
+    ) {
+      await sendSupplyNotification(
+        {
+          userId:
+            request.farmerId,
+
+          type:
+            "SUPPLY_REQUEST_COMPLETED",
+
+          title:
+            "Supply request completed",
+
+          message:
+            `Your ${request.productName} supply request (${trackingCode}) has been completed successfully.`,
+
+          requestId,
+
+          trackingCode,
+
+          status:
+            request.status,
+        }
+      );
+    }
+  };
+
+
 
 const updateSupplyRequestStatusInDB =
   async (
-    requestId: string,
+    requestId:
+      string,
 
     status:
       TSupplyStatus,
 
-    adminNote?: string
+    adminNote?:
+      string
   ) => {
     if (
       !isValidObjectId(
@@ -385,10 +763,22 @@ const updateSupplyRequestStatusInDB =
         requestId
       );
 
-    if (!request) {
+    if (
+      !request
+    ) {
       throw new AppError(
         404,
         "Supply request not found"
+      );
+    }
+
+    if (
+      request.status ===
+      status
+    ) {
+      throw new AppError(
+        400,
+        `Supply request is already ${status}`
       );
     }
 
@@ -405,6 +795,18 @@ const updateSupplyRequestStatusInDB =
       throw new AppError(
         400,
         `Cannot change supply request from ${request.status} to ${status}`
+      );
+    }
+
+    if (
+      status ===
+        "REJECTED" &&
+      !adminNote
+        ?.trim()
+    ) {
+      throw new AppError(
+        400,
+        "A rejection reason is required"
       );
     }
 
@@ -456,8 +858,18 @@ const updateSupplyRequestStatusInDB =
 
     await request.save();
 
+
+    await createStatusNotification(
+      request as unknown as
+        ISupplyRequest & {
+          _id:
+            unknown;
+        }
+    );
+
     return request;
   };
+
 
 export const SupplyRequestService =
   {
@@ -465,7 +877,7 @@ export const SupplyRequestService =
 
     getAllSupplyRequestsFromDB,
 
-    getSupplyRequestStatsFromDB,
+    getMySupplyRequestsFromDB,
 
     getSupplyRequestByIdFromDB,
 

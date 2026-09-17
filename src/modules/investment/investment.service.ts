@@ -8,10 +8,6 @@ import {
 
 import Stripe from "stripe";
 
-import {
-  Farm,
-} from "../../app/modules/farm/farm.model";
-
 import AppError from "../../utils/AppError";
 
 import {
@@ -32,48 +28,49 @@ import {
   InvestmentProject,
 } from "./investment.model";
 
+/* ============================================================
+   CODE GENERATOR
+============================================================ */
 
+const generateCode = async (
+  prefix: string,
 
-const generateCode =
-  async (
-    prefix:
-      string,
-
-    exists:
-      (
-        code:
-          string
-      ) =>
-        Promise<boolean>
-  ): Promise<string> => {
-    for (
-      let i = 0;
-      i < 12;
-      i += 1
-    ) {
-      const code =
-        `${prefix}-${randomBytes(
-          4
+  exists: (
+    code: string
+  ) => Promise<boolean>
+): Promise<string> => {
+  for (
+    let i = 0;
+    i < 12;
+    i += 1
+  ) {
+    const code =
+      `${prefix}-${randomBytes(
+        4
+      )
+        .toString(
+          "hex"
         )
-          .toString(
-            "hex"
-          )
-          .toUpperCase()}`;
+        .toUpperCase()}`;
 
-      if (
-        !(await exists(
-          code
-        ))
-      ) {
-        return code;
-      }
+    if (
+      !(await exists(
+        code
+      ))
+    ) {
+      return code;
     }
+  }
 
-    throw new AppError(
-      500,
-      `Failed to generate ${prefix} code`
-    );
-  };
+  throw new AppError(
+    500,
+    `Failed to generate ${prefix} code`
+  );
+};
+
+/* ============================================================
+   STRIPE
+============================================================ */
 
 const getStripe =
   () => {
@@ -83,7 +80,9 @@ const getStripe =
       process.env
         .STRIPE_SECRET;
 
-    if (!key) {
+    if (
+      !key
+    ) {
       throw new AppError(
         500,
         "STRIPE_SECRET_KEY is not configured"
@@ -103,7 +102,9 @@ const getClientUrl =
       process.env
         .FRONTEND_URL;
 
-    if (!url) {
+    if (
+      !url
+    ) {
       throw new AppError(
         500,
         "CLIENT_URL is not configured"
@@ -116,6 +117,17 @@ const getClientUrl =
     );
   };
 
+/* ============================================================
+   NORMALIZE PROJECT
+============================================================ */
+
+/**
+ * Supports old investment documents while the new Farmer Care
+ * investment structure uses:
+ *
+ * durationMonths
+ * expectedReturnPercent
+ */
 const normalizeProject =
   <
     T extends Record<
@@ -123,17 +135,45 @@ const normalizeProject =
       any
     >
   >(
-    project:
-      T
+    project: T
   ): T => {
     const durationMonths =
       Number(
         project.durationMonths ||
           parseInt(
-            project.duration ||
-              "0",
+            String(
+              project.duration ||
+                "0"
+            ),
             10
           ) ||
+          0
+      );
+
+    /**
+     * Legacy database projects may contain:
+     *
+     * expectedReturn = "15%"
+     *
+     * New projects use:
+     *
+     * expectedReturnPercent = 15
+     */
+    const legacyReturn =
+      parseFloat(
+        String(
+          project.expectedReturn ||
+            ""
+        ).replace(
+          /[^0-9.]/g,
+          ""
+        )
+      );
+
+    const expectedReturnPercent =
+      Number(
+        project.expectedReturnPercent ||
+          legacyReturn ||
           0
       );
 
@@ -154,9 +194,11 @@ const normalizeProject =
 
       durationMonths,
 
+      expectedReturnPercent,
+
       useOfFunds:
         project.useOfFunds ||
-        "Project operations and farm expansion",
+        "Project operations and agricultural development",
 
       fundingStatus:
         project.fundingStatus ||
@@ -164,19 +206,113 @@ const normalizeProject =
     };
   };
 
+/* ============================================================
+   PUBLIC PROJECT SANITIZER
+============================================================ */
 
+/**
+ * Public API should not expose:
+ *
+ * farmer email
+ * admin notes
+ * private documents
+ * old profit-sharing data
+ * farmer NID
+ *
+ * We normalize FIRST so legacy expectedReturn can still be
+ * converted into expectedReturnPercent.
+ */
+const toPublicProject =
+  (
+    project:
+      Record<
+        string,
+        any
+      >
+  ) => {
+    const normalized =
+      normalizeProject(
+        {
+          ...project,
+        }
+      ) as Record<
+        string,
+        any
+      >;
 
+    delete normalized
+      .farmerEmail;
+
+    delete normalized
+      .adminNote;
+
+    delete normalized
+      .reviewedAt;
+
+    delete normalized
+      .supportingDocument;
+
+    delete normalized
+      .nidNumber;
+
+    delete normalized
+      .nidFrontImage;
+
+    /* ========================================================
+       OLD FINANCIAL MODEL
+    ======================================================== */
+
+    delete normalized
+      .ownContribution;
+
+    delete normalized
+      .investorSharePercent;
+
+    delete normalized
+      .duration;
+
+    delete normalized
+      .expectedReturn;
+
+    delete normalized
+      .profitSharing;
+
+    delete normalized
+      .estimatedRevenue;
+
+    delete normalized
+      .estimatedCost;
+
+    delete normalized
+      .estimatedProfit;
+
+    return normalized;
+  };
+
+/* ============================================================
+   FARMER - CREATE INVESTMENT PROJECT
+============================================================ */
+
+/**
+ * Farmer does NOT need to select an existing Farm anymore.
+ *
+ * This is now a standalone agricultural investment project.
+ */
 const createInvestmentProjectInDB =
   async (
     payload:
       Pick<
         IInvestmentProject,
-        | "farmId"
         | "projectName"
         | "category"
         | "requiredInvestment"
         | "minimumInvestment"
         | "durationMonths"
+        | "expectedReturnPercent"
+        | "division"
+        | "district"
+        | "upazila"
+        | "address"
         | "description"
         | "useOfFunds"
         | "projectImage"
@@ -184,86 +320,82 @@ const createInvestmentProjectInDB =
       >,
 
     farmer: {
-      id:
-        string;
+      id: string;
 
-      name?:
-        string;
+      name?: string;
 
-      email:
-        string;
+      email: string;
     }
   ) => {
+    /* ========================================================
+       VALIDATE FINANCIAL DATA
+    ======================================================== */
+
     if (
-      !isValidObjectId(
-        payload.farmId
+      Number(
+        payload.requiredInvestment
+      ) <=
+      0
+    ) {
+      throw new AppError(
+        400,
+        "Funding goal must be greater than 0"
+      );
+    }
+
+    if (
+      Number(
+        payload.minimumInvestment
+      ) <=
+      0
+    ) {
+      throw new AppError(
+        400,
+        "Minimum investment must be greater than 0"
+      );
+    }
+
+    if (
+      Number(
+        payload.minimumInvestment
+      ) >
+      Number(
+        payload.requiredInvestment
       )
     ) {
       throw new AppError(
         400,
-        "Invalid farm id"
+        "Minimum investment cannot exceed the funding goal"
       );
     }
-
-    const farm =
-      await Farm.findOne(
-        {
-          _id:
-            payload.farmId,
-
-          farmerId:
-            farmer.id,
-
-          status:
-            "Active",
-        }
-      ).lean();
-
-    if (!farm) {
-      throw new AppError(
-        404,
-        "Active farm not found or you do not own this farm"
-      );
-    }
-
-    const existingOpenRequest =
-      await InvestmentProject.exists(
-        {
-          farmId:
-            String(
-              farm._id
-            ),
-
-          farmerId:
-            farmer.id,
-
-          status: {
-            $in: [
-              "PENDING_REVIEW",
-              "APPROVED",
-            ],
-          },
-
-          fundingStatus: {
-            $ne:
-              "CLOSED",
-          },
-
-          isDeleted: {
-            $ne:
-              true,
-          },
-        }
-      );
 
     if (
-      existingOpenRequest
+      Number(
+        payload.durationMonths
+      ) <=
+      0
     ) {
       throw new AppError(
-        409,
-        "This farm already has an active investment project. Close or complete it before submitting another one."
+        400,
+        "Investment term must be greater than 0"
       );
     }
+
+    if (
+      Number(
+        payload.expectedReturnPercent
+      ) <=
+      0
+    ) {
+      throw new AppError(
+        400,
+        "Projected ROI must be greater than 0"
+      );
+    }
+
+    /* ========================================================
+       PROJECT CODE
+    ======================================================== */
 
     const projectCode =
       await generateCode(
@@ -282,6 +414,10 @@ const createInvestmentProjectInDB =
           )
       );
 
+    /* ========================================================
+       CREATE PROJECT
+    ======================================================== */
+
     const project =
       await InvestmentProject.create(
         {
@@ -299,50 +435,74 @@ const createInvestmentProjectInDB =
               .toLowerCase()
               .trim(),
 
+          /**
+           * Legacy compatibility.
+           *
+           * New projects are no longer attached to a Farm.
+           */
           farmId:
-            String(
-              farm._id
-            ),
+            "",
 
           farmName:
-            farm.name,
+            "",
 
           projectName:
-            payload.projectName,
+            payload.projectName
+              .trim(),
 
           category:
             payload.category,
 
           requiredInvestment:
-            payload.requiredInvestment,
+            Number(
+              payload.requiredInvestment
+            ),
 
           minimumInvestment:
-            payload.minimumInvestment,
+            Number(
+              payload.minimumInvestment
+            ),
 
           fundedAmount:
             0,
 
           durationMonths:
-            payload.durationMonths,
+            Number(
+              payload.durationMonths
+            ),
+
+          expectedReturnPercent:
+            Number(
+              payload.expectedReturnPercent
+            ),
 
           division:
-            farm.division,
+            payload.division
+              .trim(),
 
           district:
-            farm.district,
+            payload.district
+              .trim(),
 
           upazila:
-            farm.upazila,
+            payload.upazila
+              .trim(),
+
+          address:
+            payload.address
+              ?.trim() ||
+            "",
 
           description:
-            payload.description,
+            payload.description
+              .trim(),
 
           useOfFunds:
-            payload.useOfFunds,
+            payload.useOfFunds
+              .trim(),
 
           projectImage:
-            payload.projectImage ||
-            farm.coverImage,
+            payload.projectImage,
 
           supportingDocument:
             payload.supportingDocument,
@@ -361,10 +521,14 @@ const createInvestmentProjectInDB =
         }
       );
 
-    return project;
+    return normalizeProject(
+      project.toObject() as any
+    );
   };
 
-
+/* ============================================================
+   FARMER - MY PROJECTS
+============================================================ */
 
 const getMyInvestmentProjectsFromDB =
   async (
@@ -397,6 +561,10 @@ const getMyInvestmentProjectsFromDB =
         )
     );
   };
+
+/* ============================================================
+   FARMER - MY SINGLE PROJECT
+============================================================ */
 
 const getMyInvestmentProjectByIdFromDB =
   async (
@@ -432,7 +600,9 @@ const getMyInvestmentProjectByIdFromDB =
         }
       ).lean();
 
-    if (!project) {
+    if (
+      !project
+    ) {
       throw new AppError(
         404,
         "Investment project not found"
@@ -444,7 +614,9 @@ const getMyInvestmentProjectByIdFromDB =
     );
   };
 
-
+/* ============================================================
+   FARMER - UPDATE PROJECT
+============================================================ */
 
 const updateMyInvestmentProjectInDB =
   async (
@@ -483,13 +655,19 @@ const updateMyInvestmentProjectInDB =
         }
       );
 
-    if (!project) {
+    if (
+      !project
+    ) {
       throw new AppError(
         404,
         "Investment project not found"
       );
     }
 
+    /**
+     * Once public funding has started,
+     * farmer must not silently change investment terms.
+     */
     if (
       project.status ===
       "APPROVED"
@@ -500,21 +678,43 @@ const updateMyInvestmentProjectInDB =
       );
     }
 
+    /* ========================================================
+       ONLY THESE FIELDS MAY BE EDITED
+    ======================================================== */
+
     const allowedFields = [
       "projectName",
+
       "category",
+
       "requiredInvestment",
+
       "minimumInvestment",
+
       "durationMonths",
+
+      "expectedReturnPercent",
+
+      "division",
+
+      "district",
+
+      "upazila",
+
+      "address",
+
       "description",
+
       "useOfFunds",
+
       "projectImage",
+
       "supportingDocument",
-    ];
+    ] as const;
 
     for (
-      const field
-      of allowedFields
+      const field of
+        allowedFields
     ) {
       const value =
         payload[
@@ -530,9 +730,39 @@ const updateMyInvestmentProjectInDB =
             string,
             unknown
           >
-        )[field] =
+        )[
+          field
+        ] =
           value;
       }
+    }
+
+    /* ========================================================
+       VALIDATE UPDATED TERMS
+    ======================================================== */
+
+    if (
+      Number(
+        project.requiredInvestment
+      ) <=
+      0
+    ) {
+      throw new AppError(
+        400,
+        "Funding goal must be greater than 0"
+      );
+    }
+
+    if (
+      Number(
+        project.minimumInvestment
+      ) <=
+      0
+    ) {
+      throw new AppError(
+        400,
+        "Minimum investment must be greater than 0"
+      );
     }
 
     if (
@@ -546,11 +776,42 @@ const updateMyInvestmentProjectInDB =
     }
 
     if (
+      Number(
+        project.durationMonths
+      ) <=
+      0
+    ) {
+      throw new AppError(
+        400,
+        "Investment term must be greater than 0"
+      );
+    }
+
+    if (
+      Number(
+        project.expectedReturnPercent
+      ) <=
+      0
+    ) {
+      throw new AppError(
+        400,
+        "Projected ROI must be greater than 0"
+      );
+    }
+
+    /* ========================================================
+       REJECTED PROJECT → RESUBMIT
+    ======================================================== */
+
+    if (
       project.status ===
       "REJECTED"
     ) {
       project.status =
         "PENDING_REVIEW";
+
+      project.fundingStatus =
+        "OPEN";
 
       project.adminNote =
         "";
@@ -564,10 +825,14 @@ const updateMyInvestmentProjectInDB =
 
     await project.save();
 
-    return project;
+    return normalizeProject(
+      project.toObject() as any
+    );
   };
 
-
+/* ============================================================
+   FARMER - WITHDRAW PROJECT
+============================================================ */
 
 const deleteMyInvestmentProjectFromDB =
   async (
@@ -603,7 +868,9 @@ const deleteMyInvestmentProjectFromDB =
         }
       );
 
-    if (!project) {
+    if (
+      !project
+    ) {
       throw new AppError(
         404,
         "Investment project not found"
@@ -616,7 +883,8 @@ const deleteMyInvestmentProjectFromDB =
       Number(
         project.fundedAmount ||
           0
-      ) > 0
+      ) >
+        0
     ) {
       throw new AppError(
         400,
@@ -635,7 +903,9 @@ const deleteMyInvestmentProjectFromDB =
     return project;
   };
 
-
+/* ============================================================
+   PROJECT FILTER
+============================================================ */
 
 const buildProjectFilter =
   (
@@ -648,7 +918,7 @@ const buildProjectFilter =
     const filter:
       Record<
         string,
-        unknown
+        any
       > = {
       isDeleted: {
         $ne:
@@ -661,6 +931,14 @@ const buildProjectFilter =
     ) {
       filter.status =
         "APPROVED";
+
+      filter.fundingStatus =
+        {
+          $in: [
+            "OPEN",
+            "FUNDED",
+          ],
+        };
     } else if (
       query.status
     ) {
@@ -677,12 +955,17 @@ const buildProjectFilter =
 
     if (
       query.search
+        ?.trim()
     ) {
+      const search =
+        query.search
+          .trim();
+
       filter.$or = [
         {
           projectName: {
             $regex:
-              query.search,
+              search,
 
             $options:
               "i",
@@ -692,7 +975,7 @@ const buildProjectFilter =
         {
           farmName: {
             $regex:
-              query.search,
+              search,
 
             $options:
               "i",
@@ -702,7 +985,7 @@ const buildProjectFilter =
         {
           farmerName: {
             $regex:
-              query.search,
+              search,
 
             $options:
               "i",
@@ -712,7 +995,17 @@ const buildProjectFilter =
         {
           district: {
             $regex:
-              query.search,
+              search,
+
+            $options:
+              "i",
+          },
+        },
+
+        {
+          division: {
+            $regex:
+              search,
 
             $options:
               "i",
@@ -722,7 +1015,7 @@ const buildProjectFilter =
         {
           projectCode: {
             $regex:
-              query.search,
+              search,
 
             $options:
               "i",
@@ -733,6 +1026,10 @@ const buildProjectFilter =
 
     return filter;
   };
+
+/* ============================================================
+   PAGINATION
+============================================================ */
 
 const paginate =
   (
@@ -749,7 +1046,9 @@ const paginate =
       Math.max(
         Number(
           query.page
-        ) || 1,
+        ) ||
+          1,
+
         1
       );
 
@@ -760,8 +1059,10 @@ const paginate =
             query.limit
           ) ||
             defaultLimit,
+
           1
         ),
+
         100
       );
 
@@ -771,12 +1072,17 @@ const paginate =
       limit,
 
       skip:
-        (page - 1) *
+        (
+          page -
+          1
+        ) *
         limit,
     };
   };
 
-
+/* ============================================================
+   PUBLIC - APPROVED PROJECTS
+============================================================ */
 
 const getApprovedInvestmentProjectsFromDB =
   async (
@@ -803,25 +1109,44 @@ const getApprovedInvestmentProjectsFromDB =
       data,
       total,
     ] =
-      await Promise.all([
-        InvestmentProject.find(
-          filter
-        )
-          .select(
-            "-farmerEmail -adminNote -reviewedAt -supportingDocument -nidNumber -nidFrontImage"
+      await Promise.all(
+        [
+          /**
+           * Keep legacy expectedReturn internally.
+           * toPublicProject() removes it AFTER ROI migration.
+           */
+          InvestmentProject.find(
+            filter
           )
-          .sort({
-            createdAt:
-              -1,
-          })
-          .skip(skip)
-          .limit(limit)
-          .lean(),
+            .select(
+              [
+                "-farmerEmail",
+                "-adminNote",
+                "-reviewedAt",
+                "-supportingDocument",
+                "-nidNumber",
+                "-nidFrontImage",
+              ].join(
+                " "
+              )
+            )
+            .sort({
+              createdAt:
+                -1,
+            })
+            .skip(
+              skip
+            )
+            .limit(
+              limit
+            )
+            .lean(),
 
-        InvestmentProject.countDocuments(
-          filter
-        ),
-      ]);
+          InvestmentProject.countDocuments(
+            filter
+          ),
+        ]
+      );
 
     return {
       meta: {
@@ -843,12 +1168,16 @@ const getApprovedInvestmentProjectsFromDB =
           (
             project
           ) =>
-            normalizeProject(
+            toPublicProject(
               project as any
             )
         ),
     };
   };
+
+/* ============================================================
+   PUBLIC - SINGLE PROJECT
+============================================================ */
 
 const getApprovedInvestmentProjectByIdFromDB =
   async (
@@ -882,23 +1211,36 @@ const getApprovedInvestmentProjectByIdFromDB =
         }
       )
         .select(
-          "-farmerEmail -adminNote -reviewedAt -supportingDocument -nidNumber -nidFrontImage"
+          [
+            "-farmerEmail",
+            "-adminNote",
+            "-reviewedAt",
+            "-supportingDocument",
+            "-nidNumber",
+            "-nidFrontImage",
+          ].join(
+            " "
+          )
         )
         .lean();
 
-    if (!project) {
+    if (
+      !project
+    ) {
       throw new AppError(
         404,
         "Investment project not found"
       );
     }
 
-    return normalizeProject(
+    return toPublicProject(
       project as any
     );
   };
 
-
+/* ============================================================
+   ADMIN - PROJECTS
+============================================================ */
 
 const getAdminInvestmentProjectsFromDB =
   async (
@@ -925,22 +1267,28 @@ const getAdminInvestmentProjectsFromDB =
       data,
       total,
     ] =
-      await Promise.all([
-        InvestmentProject.find(
-          filter
-        )
-          .sort({
-            createdAt:
-              -1,
-          })
-          .skip(skip)
-          .limit(limit)
-          .lean(),
+      await Promise.all(
+        [
+          InvestmentProject.find(
+            filter
+          )
+            .sort({
+              createdAt:
+                -1,
+            })
+            .skip(
+              skip
+            )
+            .limit(
+              limit
+            )
+            .lean(),
 
-        InvestmentProject.countDocuments(
-          filter
-        ),
-      ]);
+          InvestmentProject.countDocuments(
+            filter
+          ),
+        ]
+      );
 
     return {
       meta: {
@@ -968,6 +1316,10 @@ const getAdminInvestmentProjectsFromDB =
         ),
     };
   };
+
+/* ============================================================
+   ADMIN - SINGLE PROJECT
+============================================================ */
 
 const getAdminInvestmentProjectByIdFromDB =
   async (
@@ -998,7 +1350,9 @@ const getAdminInvestmentProjectByIdFromDB =
         }
       ).lean();
 
-    if (!project) {
+    if (
+      !project
+    ) {
       throw new AppError(
         404,
         "Investment project not found"
@@ -1010,7 +1364,9 @@ const getAdminInvestmentProjectByIdFromDB =
     );
   };
 
-
+/* ============================================================
+   ADMIN - REVIEW PROJECT
+============================================================ */
 
 const reviewInvestmentProjectInDB =
   async (
@@ -1059,7 +1415,9 @@ const reviewInvestmentProjectInDB =
         }
       );
 
-    if (!project) {
+    if (
+      !project
+    ) {
       throw new AppError(
         404,
         "Project not found"
@@ -1079,7 +1437,8 @@ const reviewInvestmentProjectInDB =
     if (
       status ===
         "REJECTED" &&
-      !adminNote?.trim()
+      !adminNote
+        ?.trim()
     ) {
       throw new AppError(
         400,
@@ -1087,11 +1446,46 @@ const reviewInvestmentProjectInDB =
       );
     }
 
+    /**
+     * Farmer Care investment cannot be approved
+     * without clear investment terms.
+     */
+    if (
+      status ===
+        "APPROVED" &&
+      Number(
+        project.expectedReturnPercent ||
+          0
+      ) <=
+        0
+    ) {
+      throw new AppError(
+        400,
+        "Projected ROI is required before this project can be approved"
+      );
+    }
+
+    if (
+      status ===
+        "APPROVED" &&
+      Number(
+        project.durationMonths ||
+          0
+      ) <=
+        0
+    ) {
+      throw new AppError(
+        400,
+        "Investment term is required before this project can be approved"
+      );
+    }
+
     project.status =
       status;
 
     project.adminNote =
-      adminNote?.trim() ||
+      adminNote
+        ?.trim() ||
       "";
 
     project.reviewedAt =
@@ -1103,66 +1497,65 @@ const reviewInvestmentProjectInDB =
         ? new Date()
         : undefined;
 
-    if (
-      status ===
-      "REJECTED"
-    ) {
-      project.fundingStatus =
-        "CLOSED";
-    }
-
-    if (
+    project.fundingStatus =
       status ===
       "APPROVED"
-    ) {
-      project.fundingStatus =
-        "OPEN";
-    }
+        ? "OPEN"
+        : "CLOSED";
 
     await project.save();
 
-    await NotificationService.createNotification(
-      {
-        userId:
-          project.farmerId,
+    /* ========================================================
+       FARMER NOTIFICATION
+    ======================================================== */
 
-        type:
-          status ===
-          "APPROVED"
-            ? "INVESTMENT_PROJECT_APPROVED"
-            : "INVESTMENT_PROJECT_REJECTED",
+    await NotificationService
+      .createNotification(
+        {
+          userId:
+            project.farmerId,
 
-        title:
-          status ===
-          "APPROVED"
-            ? "Funding project approved"
-            : "Funding project needs changes",
+          type:
+            status ===
+            "APPROVED"
+              ? "INVESTMENT_PROJECT_APPROVED"
+              : "INVESTMENT_PROJECT_REJECTED",
 
-        message:
-          status ===
-          "APPROVED"
-            ? `${project.projectName} is approved and is now visible on the public investment page.`
-            : `${project.projectName} was rejected. ${project.adminNote}`,
+          title:
+            status ===
+            "APPROVED"
+              ? "Investment project approved"
+              : "Investment project needs changes",
 
-        href:
-          "/dashboard/farmer/investment",
+          message:
+            status ===
+            "APPROVED"
+              ? `${project.projectName} is approved and is now visible on the public investment page.`
+              : `${project.projectName} was rejected. ${project.adminNote}`,
 
-        data: {
-          projectId:
-            String(
-              project._id
-            ),
+          href:
+            "/dashboard/farmer/investment",
 
-          projectCode:
-            project.projectCode,
-        },
-      }
+          data: {
+            projectId:
+              String(
+                project._id
+              ),
+
+            projectCode:
+              project.projectCode,
+          },
+        }
+      );
+
+    return normalizeProject(
+      project.toObject() as any
     );
-
-    return project;
   };
 
-
+/* ============================================================
+   INVESTOR - CREATE INVESTMENT APPLICATION
+============================================================ */
 
 const createInvestmentApplicationInDB =
   async (
@@ -1170,14 +1563,11 @@ const createInvestmentApplicationInDB =
       string,
 
     payload: {
-      amount:
-        number;
+      amount: number;
 
-      nidNumber:
-        string;
+      nidNumber: string;
 
-      note?:
-        string;
+      note?: string;
 
       paymentMethod:
         | "BANK_TRANSFER"
@@ -1185,14 +1575,11 @@ const createInvestmentApplicationInDB =
     },
 
     investor: {
-      id:
-        string;
+      id: string;
 
-      name?:
-        string;
+      name?: string;
 
-      email:
-        string;
+      email: string;
     }
   ) => {
     if (
@@ -1225,12 +1612,18 @@ const createInvestmentApplicationInDB =
         }
       );
 
-    if (!project) {
+    if (
+      !project
+    ) {
       throw new AppError(
         404,
         "This project is not open for investment"
       );
     }
+
+    /* ========================================================
+       OWNER CANNOT INVEST IN OWN PROJECT
+    ======================================================== */
 
     if (
       project.farmerId ===
@@ -1238,9 +1631,13 @@ const createInvestmentApplicationInDB =
     ) {
       throw new AppError(
         403,
-        "You cannot invest in your own farm project"
+        "You cannot invest in your own investment project"
       );
     }
+
+    /* ========================================================
+       AVAILABLE FUNDING
+    ======================================================== */
 
     const remaining =
       Math.max(
@@ -1255,7 +1652,10 @@ const createInvestmentApplicationInDB =
         0
       );
 
-    if (remaining <= 0) {
+    if (
+      remaining <=
+      0
+    ) {
       throw new AppError(
         400,
         "This project is already fully funded"
@@ -1268,6 +1668,10 @@ const createInvestmentApplicationInDB =
           1000
       );
 
+    /**
+     * If the final remaining amount is smaller
+     * than the normal minimum, allow that final amount.
+     */
     const effectiveMinimum =
       Math.min(
         configuredMinimum,
@@ -1275,7 +1679,9 @@ const createInvestmentApplicationInDB =
       );
 
     if (
-      payload.amount <
+      Number(
+        payload.amount
+      ) <
       effectiveMinimum
     ) {
       throw new AppError(
@@ -1287,7 +1693,9 @@ const createInvestmentApplicationInDB =
     }
 
     if (
-      payload.amount >
+      Number(
+        payload.amount
+      ) >
       remaining
     ) {
       throw new AppError(
@@ -1297,6 +1705,10 @@ const createInvestmentApplicationInDB =
         )} remains to be funded`
       );
     }
+
+    /* ========================================================
+       DUPLICATE ACTIVE APPLICATION
+    ======================================================== */
 
     const activeApplication =
       await InvestmentApplication.exists(
@@ -1337,6 +1749,10 @@ const createInvestmentApplicationInDB =
       );
     }
 
+    /* ========================================================
+       APPLICATION CODE
+    ======================================================== */
+
     const applicationCode =
       await generateCode(
         "APP",
@@ -1353,6 +1769,10 @@ const createInvestmentApplicationInDB =
             )
           )
       );
+
+    /* ========================================================
+       CREATE APPLICATION
+    ======================================================== */
 
     const created =
       await InvestmentApplication.create(
@@ -1391,14 +1811,42 @@ const createInvestmentApplicationInDB =
               .toLowerCase()
               .trim(),
 
+          /**
+           * Admin-only sensitive information.
+           */
           nidNumber:
-            payload.nidNumber.trim(),
+            payload.nidNumber
+              .trim(),
 
           amount:
-            payload.amount,
+            Number(
+              payload.amount
+            ),
+
+          /**
+           * IMPORTANT:
+           *
+           * Snapshot investment terms at application time.
+           *
+           * If the project changes in the future,
+           * this investor still has a record of the
+           * terms they applied under.
+           */
+          expectedReturnPercent:
+            Number(
+              project.expectedReturnPercent ||
+                0
+            ),
+
+          durationMonths:
+            Number(
+              project.durationMonths ||
+                0
+            ),
 
           note:
-            payload.note ||
+            payload.note
+              ?.trim() ||
             "",
 
           paymentMethod:
@@ -1415,19 +1863,28 @@ const createInvestmentApplicationInDB =
         }
       );
 
-   
+    /**
+     * nidNumber is select:false in the model,
+     * but the freshly-created Mongoose document still
+     * contains it in memory.
+     *
+     * Remove before sending to client.
+     */
     const safe =
       created.toObject() as unknown as Record<
         string,
         unknown
       >;
 
-    delete safe.nidNumber;
+    delete safe
+      .nidNumber;
 
     return safe;
   };
 
-
+/* ============================================================
+   INVESTOR - MY INVESTMENTS
+============================================================ */
 
 const getMyInvestmentApplicationsFromDB =
   async (
@@ -1450,6 +1907,10 @@ const getMyInvestmentApplicationsFromDB =
       })
       .lean();
   };
+
+/* ============================================================
+   INVESTOR - SINGLE INVESTMENT
+============================================================ */
 
 const getMyInvestmentApplicationByIdFromDB =
   async (
@@ -1497,65 +1958,104 @@ const getMyInvestmentApplicationByIdFromDB =
     return application;
   };
 
+/* ============================================================
+   ENSURE APPLICATION STILL FITS FUNDING
+============================================================ */
 
 const ensureApplicationStillFitsAvailableFunding =
   async (
     application: {
-      _id: unknown;
-      projectId: string;
-      amount: number;
+      _id:
+        unknown;
+
+      projectId:
+        string;
+
+      amount:
+        number;
     }
   ) => {
     const project =
-      await InvestmentProject.findOne({
-        _id: application.projectId,
-        status: "APPROVED",
-        fundingStatus: "OPEN",
-        isDeleted: {
-          $ne: true,
-        },
-      });
+      await InvestmentProject.findOne(
+        {
+          _id:
+            application.projectId,
 
-    if (!project) {
+          status:
+            "APPROVED",
+
+          fundingStatus:
+            "OPEN",
+
+          isDeleted: {
+            $ne:
+              true,
+          },
+        }
+      );
+
+    if (
+      !project
+    ) {
       throw new AppError(
         400,
         "The project is no longer open for investment"
       );
     }
 
+    /**
+     * Count approved commitments that have not failed
+     * or been payment-rejected.
+     */
     const committedAgg =
-      await InvestmentApplication.aggregate([
-        {
-          $match: {
-            projectId: application.projectId,
-            _id: {
-              $ne: application._id,
-            },
-            status: "APPROVED",
-            paymentStatus: {
-              $nin: [
-                "PAYMENT_REJECTED",
-                "FAILED",
-              ],
-            },
-            isDeleted: {
-              $ne: true,
+      await InvestmentApplication.aggregate(
+        [
+          {
+            $match: {
+              projectId:
+                application.projectId,
+
+              _id: {
+                $ne:
+                  application._id,
+              },
+
+              status:
+                "APPROVED",
+
+              paymentStatus: {
+                $nin: [
+                  "PAYMENT_REJECTED",
+                  "FAILED",
+                ],
+              },
+
+              isDeleted: {
+                $ne:
+                  true,
+              },
             },
           },
-        },
-        {
-          $group: {
-            _id: null,
-            total: {
-              $sum: "$amount",
+
+          {
+            $group: {
+              _id:
+                null,
+
+              total: {
+                $sum:
+                  "$amount",
+              },
             },
           },
-        },
-      ]);
+        ]
+      );
 
     const committed =
       Number(
-        committedAgg[0]?.total ||
+        committedAgg[
+          0
+        ]?.total ||
           0
       );
 
@@ -1563,12 +2063,16 @@ const ensureApplicationStillFitsAvailableFunding =
       Math.max(
         Number(
           project.requiredInvestment
-        ) - committed,
+        ) -
+          committed,
+
         0
       );
 
     if (
-      Number(application.amount) >
+      Number(
+        application.amount
+      ) >
       available
     ) {
       throw new AppError(
@@ -1582,7 +2086,9 @@ const ensureApplicationStillFitsAvailableFunding =
     return project;
   };
 
-
+/* ============================================================
+   BANK PAYMENT - INVESTOR SUBMISSION
+============================================================ */
 
 const submitBankPaymentInDB =
   async (
@@ -1669,13 +2175,16 @@ const submitBankPaymentInDB =
     );
 
     application.senderBankName =
-      payload.senderBankName;
+      payload.senderBankName
+        .trim();
 
     application.transactionReference =
-      payload.transactionReference;
+      payload.transactionReference
+        .trim();
 
     application.paymentProofUrl =
-      payload.paymentProofUrl;
+      payload.paymentProofUrl
+        .trim();
 
     application.paymentStatus =
       "PENDING_VERIFICATION";
@@ -1685,39 +2194,46 @@ const submitBankPaymentInDB =
 
     await application.save();
 
-    await NotificationService.createNotification(
-      {
-        userId:
-          application.projectOwnerId,
+    /* ========================================================
+       PROJECT OWNER NOTIFICATION
+    ======================================================== */
 
-        type:
-          "INVESTMENT_PAYMENT_SUBMITTED",
+    await NotificationService
+      .createNotification(
+        {
+          userId:
+            application.projectOwnerId,
 
-        title:
-          "Investment payment submitted",
+          type:
+            "INVESTMENT_PAYMENT_SUBMITTED",
 
-        message:
-          `${application.investorName || "An investor"} submitted bank payment proof for ${application.projectName}. Admin verification is pending.`,
+          title:
+            "Investment payment submitted",
 
-        href:
-          "/dashboard/farmer/investment",
+          message:
+            `${application.investorName || "An investor"} submitted bank payment proof for ${application.projectName}. Admin verification is pending.`,
 
-        data: {
-          applicationId:
-            String(
-              application._id
-            ),
+          href:
+            "/dashboard/farmer/investment",
 
-          projectId:
-            application.projectId,
-        },
-      }
-    );
+          data: {
+            applicationId:
+              String(
+                application._id
+              ),
+
+            projectId:
+              application.projectId,
+          },
+        }
+      );
 
     return application;
   };
 
-
+/* ============================================================
+   STRIPE CHECKOUT
+============================================================ */
 
 const createStripeCheckoutSessionForInvestment =
   async (
@@ -1800,7 +2316,9 @@ const createStripeCheckoutSessionForInvestment =
         }
       );
 
-    if (!project) {
+    if (
+      !project
+    ) {
       throw new AppError(
         404,
         "Investment project is no longer available"
@@ -1924,7 +2442,9 @@ const createStripeCheckoutSessionForInvestment =
     };
   };
 
-
+/* ============================================================
+   CONFIRM PAID APPLICATION
+============================================================ */
 
 const confirmPaidApplication =
   async (
@@ -1947,78 +2467,95 @@ const confirmPaidApplication =
       return null;
     }
 
+    /**
+     * Atomic status update prevents the same application
+     * from increasing fundedAmount twice.
+     */
     const application =
-      await InvestmentApplication.findOneAndUpdate(
-        {
-          _id:
-            applicationId,
+      await InvestmentApplication
+        .findOneAndUpdate(
+          {
+            _id:
+              applicationId,
 
-          status:
-            "APPROVED",
+            status:
+              "APPROVED",
 
-          paymentStatus: {
-            $ne:
-              "PAID",
+            paymentStatus: {
+              $ne:
+                "PAID",
+            },
+
+            isDeleted: {
+              $ne:
+                true,
+            },
           },
 
-          isDeleted: {
-            $ne:
+          {
+            $set: {
+              paymentStatus:
+                "PAID",
+
+              paymentReviewedAt:
+                new Date(),
+
+              ...(reference
+                ?.stripeSessionId
+                ? {
+                    stripeSessionId:
+                      reference
+                        .stripeSessionId,
+                  }
+                : {}),
+
+              ...(reference
+                ?.stripePaymentIntentId
+                ? {
+                    stripePaymentIntentId:
+                      reference
+                        .stripePaymentIntentId,
+                  }
+                : {}),
+            },
+          },
+
+          {
+            new:
               true,
-          },
-        },
+          }
+        );
 
-        {
-          $set: {
-            paymentStatus:
-              "PAID",
-
-            paymentReviewedAt:
-              new Date(),
-
-            ...(reference?.stripeSessionId
-              ? {
-                  stripeSessionId:
-                    reference.stripeSessionId,
-                }
-              : {}),
-
-            ...(reference?.stripePaymentIntentId
-              ? {
-                  stripePaymentIntentId:
-                    reference.stripePaymentIntentId,
-                }
-              : {}),
-          },
-        },
-
-        {
-          new:
-            true,
-        }
-      );
-
+    /**
+     * Already processed.
+     */
     if (
       !application
     ) {
       return null;
     }
 
+    /* ========================================================
+       INCREASE PROJECT FUNDING
+    ======================================================== */
+
     const project =
-      await InvestmentProject.findByIdAndUpdate(
-        application.projectId,
+      await InvestmentProject
+        .findByIdAndUpdate(
+          application.projectId,
 
-        {
-          $inc: {
-            fundedAmount:
-              application.amount,
+          {
+            $inc: {
+              fundedAmount:
+                application.amount,
+            },
           },
-        },
 
-        {
-          new:
-            true,
-        }
-      );
+          {
+            new:
+              true,
+          }
+        );
 
     if (
       project &&
@@ -2030,6 +2567,9 @@ const confirmPaidApplication =
           project.requiredInvestment
         )
     ) {
+      /**
+       * Do not display funded amount above goal.
+       */
       project.fundedAmount =
         Math.min(
           Number(
@@ -2047,74 +2587,83 @@ const confirmPaidApplication =
       await project.save();
     }
 
-    await NotificationService.createManyNotifications(
-      [
-        {
-          userId:
-            application.investorId,
+    /* ========================================================
+       NOTIFICATIONS
+    ======================================================== */
 
-          type:
-            "INVESTMENT_PAYMENT_CONFIRMED",
+    await NotificationService
+      .createManyNotifications(
+        [
+          {
+            userId:
+              application.investorId,
 
-          title:
-            "Investment confirmed",
+            type:
+              "INVESTMENT_PAYMENT_CONFIRMED",
 
-          message:
-            `Your ৳${Number(
-              application.amount
-            ).toLocaleString(
-              "en-BD"
-            )} investment in ${application.projectName} is confirmed.`,
+            title:
+              "Investment confirmed",
 
-          href:
-            "/dashboard/farmer/my-investments",
+            message:
+              `Your ৳${Number(
+                application.amount
+              ).toLocaleString(
+                "en-BD"
+              )} investment in ${application.projectName} is confirmed.`,
 
-          data: {
-            applicationId:
-              String(
-                application._id
-              ),
+            href:
+              "/dashboard/farmer/my-investments",
 
-            projectId:
-              application.projectId,
+            data: {
+              applicationId:
+                String(
+                  application._id
+                ),
+
+              projectId:
+                application.projectId,
+            },
           },
-        },
 
-        {
-          userId:
-            application.projectOwnerId,
+          {
+            userId:
+              application.projectOwnerId,
 
-          type:
-            "INVESTMENT_PAYMENT_CONFIRMED",
+            type:
+              "INVESTMENT_PAYMENT_CONFIRMED",
 
-          title:
-            "New investment funded",
+            title:
+              "New investment funded",
 
-          message:
-            `৳${Number(
-              application.amount
-            ).toLocaleString(
-              "en-BD"
-            )} has been confirmed for ${application.projectName}.`,
+            message:
+              `৳${Number(
+                application.amount
+              ).toLocaleString(
+                "en-BD"
+              )} has been confirmed for ${application.projectName}.`,
 
-          href:
-            "/dashboard/farmer/investment",
+            href:
+              "/dashboard/farmer/investment",
 
-          data: {
-            applicationId:
-              String(
-                application._id
-              ),
+            data: {
+              applicationId:
+                String(
+                  application._id
+                ),
 
-            projectId:
-              application.projectId,
+              projectId:
+                application.projectId,
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
 
     return application;
   };
+
+/* ============================================================
+   STRIPE FAILURE
+============================================================ */
 
 const markInvestmentPaymentFailed =
   async (
@@ -2132,44 +2681,47 @@ const markInvestmentPaymentFailed =
       return null;
     }
 
-    return InvestmentApplication.findOneAndUpdate(
-      {
-        _id:
-          applicationId,
+    return InvestmentApplication
+      .findOneAndUpdate(
+        {
+          _id:
+            applicationId,
 
-        paymentStatus: {
-          $ne:
-            "PAID",
+          paymentStatus: {
+            $ne:
+              "PAID",
+          },
+
+          isDeleted: {
+            $ne:
+              true,
+          },
         },
 
-        isDeleted: {
-          $ne:
+        {
+          $set: {
+            paymentStatus:
+              "FAILED",
+
+            ...(reference
+              ? {
+                  stripeSessionId:
+                    reference,
+                }
+              : {}),
+          },
+        },
+
+        {
+          new:
             true,
-        },
-      },
-
-      {
-        $set: {
-          paymentStatus:
-            "FAILED",
-
-          ...(reference
-            ? {
-                stripeSessionId:
-                  reference,
-              }
-            : {}),
-        },
-      },
-
-      {
-        new:
-          true,
-      }
-    );
+        }
+      );
   };
 
-
+/* ============================================================
+   VERIFY STRIPE SESSION
+============================================================ */
 
 const verifyStripeInvestmentSession =
   async (
@@ -2239,9 +2791,12 @@ const verifyStripeInvestmentSession =
     }
 
     const session =
-      await getStripe().checkout.sessions.retrieve(
-        sessionId
-      );
+      await getStripe()
+        .checkout
+        .sessions
+        .retrieve(
+          sessionId
+        );
 
     if (
       session.metadata
@@ -2270,23 +2825,26 @@ const verifyStripeInvestmentSession =
             session.id,
 
           stripePaymentIntentId:
-            typeof session.payment_intent ===
+            typeof session
+              .payment_intent ===
             "string"
-              ? session.payment_intent
+              ? session
+                  .payment_intent
               : undefined,
         }
       );
     }
 
-    const refreshed =
-      await InvestmentApplication.findById(
+    return InvestmentApplication
+      .findById(
         application._id
-      ).lean();
-
-    return refreshed;
+      )
+      .lean();
   };
 
-
+/* ============================================================
+   ADMIN - INVESTMENT APPLICATIONS
+============================================================ */
 
 const getAdminInvestmentApplicationsFromDB =
   async (
@@ -2296,7 +2854,7 @@ const getAdminInvestmentApplicationsFromDB =
     const filter:
       Record<
         string,
-        unknown
+        any
       > = {
       isDeleted: {
         $ne:
@@ -2327,12 +2885,17 @@ const getAdminInvestmentApplicationsFromDB =
 
     if (
       query.search
+        ?.trim()
     ) {
+      const search =
+        query.search
+          .trim();
+
       filter.$or = [
         {
           applicationCode: {
             $regex:
-              query.search,
+              search,
 
             $options:
               "i",
@@ -2342,7 +2905,7 @@ const getAdminInvestmentApplicationsFromDB =
         {
           projectName: {
             $regex:
-              query.search,
+              search,
 
             $options:
               "i",
@@ -2352,7 +2915,7 @@ const getAdminInvestmentApplicationsFromDB =
         {
           investorName: {
             $regex:
-              query.search,
+              search,
 
             $options:
               "i",
@@ -2362,7 +2925,7 @@ const getAdminInvestmentApplicationsFromDB =
         {
           investorEmail: {
             $regex:
-              query.search,
+              search,
 
             $options:
               "i",
@@ -2372,7 +2935,7 @@ const getAdminInvestmentApplicationsFromDB =
         {
           projectOwnerName: {
             $regex:
-              query.search,
+              search,
 
             $options:
               "i",
@@ -2395,25 +2958,35 @@ const getAdminInvestmentApplicationsFromDB =
       data,
       total,
     ] =
-      await Promise.all([
-        InvestmentApplication.find(
-          filter
-        )
-          .select(
-            "+nidNumber"
+      await Promise.all(
+        [
+          /**
+           * Only ADMIN list explicitly selects NID.
+           */
+          InvestmentApplication.find(
+            filter
           )
-          .sort({
-            createdAt:
-              -1,
-          })
-          .skip(skip)
-          .limit(limit)
-          .lean(),
+            .select(
+              "+nidNumber"
+            )
+            .sort({
+              createdAt:
+                -1,
+            })
+            .skip(
+              skip
+            )
+            .limit(
+              limit
+            )
+            .lean(),
 
-        InvestmentApplication.countDocuments(
-          filter
-        ),
-      ]);
+          InvestmentApplication
+            .countDocuments(
+              filter
+            ),
+        ]
+      );
 
     return {
       meta: {
@@ -2434,7 +3007,9 @@ const getAdminInvestmentApplicationsFromDB =
     };
   };
 
-
+/* ============================================================
+   ADMIN - REVIEW INVESTMENT APPLICATION
+============================================================ */
 
 const reviewInvestmentApplicationInDB =
   async (
@@ -2505,13 +3080,18 @@ const reviewInvestmentApplicationInDB =
     if (
       status ===
         "REJECTED" &&
-      !adminNote?.trim()
+      !adminNote
+        ?.trim()
     ) {
       throw new AppError(
         400,
         "Rejection reason is required"
       );
     }
+
+    /* ========================================================
+       PREVENT OVER-COMMITMENT
+    ======================================================== */
 
     if (
       status ===
@@ -2536,7 +3116,9 @@ const reviewInvestmentApplicationInDB =
           }
         );
 
-      if (!project) {
+      if (
+        !project
+      ) {
         throw new AppError(
           400,
           "The project is no longer open for investment"
@@ -2544,53 +3126,55 @@ const reviewInvestmentApplicationInDB =
       }
 
       const committedAgg =
-        await InvestmentApplication.aggregate(
-          [
-            {
-              $match: {
-                projectId:
-                  application.projectId,
+        await InvestmentApplication
+          .aggregate(
+            [
+              {
+                $match: {
+                  projectId:
+                    application.projectId,
 
-                _id: {
-                  $ne:
-                    application._id,
-                },
+                  _id: {
+                    $ne:
+                      application._id,
+                  },
 
-                status:
-                  "APPROVED",
+                  status:
+                    "APPROVED",
 
-                paymentStatus: {
-                  $nin: [
-                    "PAYMENT_REJECTED",
-                    "FAILED",
-                  ],
-                },
+                  paymentStatus: {
+                    $nin: [
+                      "PAYMENT_REJECTED",
+                      "FAILED",
+                    ],
+                  },
 
-                isDeleted: {
-                  $ne:
-                    true,
-                },
-              },
-            },
-
-            {
-              $group: {
-                _id:
-                  null,
-
-                total: {
-                  $sum:
-                    "$amount",
+                  isDeleted: {
+                    $ne:
+                      true,
+                  },
                 },
               },
-            },
-          ]
-        );
+
+              {
+                $group: {
+                  _id:
+                    null,
+
+                  total: {
+                    $sum:
+                      "$amount",
+                  },
+                },
+              },
+            ]
+          );
 
       const committed =
         Number(
-          committedAgg[0]
-            ?.total ||
+          committedAgg[
+            0
+          ]?.total ||
             0
         );
 
@@ -2619,11 +3203,16 @@ const reviewInvestmentApplicationInDB =
       }
     }
 
+    /* ========================================================
+       REVIEW RESULT
+    ======================================================== */
+
     application.status =
       status;
 
     application.adminNote =
-      adminNote?.trim() ||
+      adminNote
+        ?.trim() ||
       "";
 
     application.reviewedAt =
@@ -2637,6 +3226,10 @@ const reviewInvestmentApplicationInDB =
 
     await application.save();
 
+    /* ========================================================
+       INVESTOR NOTIFICATION
+    ======================================================== */
+
     const approvalMessage =
       `Your ৳${Number(
         application.amount
@@ -2644,68 +3237,32 @@ const reviewInvestmentApplicationInDB =
         "en-BD"
       )} investment request for ${application.projectName} was approved. Complete payment from My Investments.`;
 
-    await NotificationService.createNotification(
-      {
-        userId:
-          application.investorId,
-
-        type:
-          status ===
-          "APPROVED"
-            ? "INVESTMENT_APPLICATION_APPROVED"
-            : "INVESTMENT_APPLICATION_REJECTED",
-
-        title:
-          status ===
-          "APPROVED"
-            ? "Investment request approved"
-            : "Investment request rejected",
-
-        message:
-          status ===
-          "APPROVED"
-            ? approvalMessage
-            : `Your investment request for ${application.projectName} was rejected. ${application.adminNote}`,
-
-        href:
-          "/dashboard/farmer/my-investments",
-
-        data: {
-          applicationId:
-            String(
-              application._id
-            ),
-
-          projectId:
-            application.projectId,
-        },
-      }
-    );
-
-    if (
-      status ===
-      "APPROVED"
-    ) {
-      await NotificationService.createNotification(
+    await NotificationService
+      .createNotification(
         {
           userId:
-            application.projectOwnerId,
+            application.investorId,
 
           type:
-            "INVESTMENT_APPLICATION_APPROVED",
+            status ===
+            "APPROVED"
+              ? "INVESTMENT_APPLICATION_APPROVED"
+              : "INVESTMENT_APPLICATION_REJECTED",
 
           title:
-            "Investor commitment approved",
+            status ===
+            "APPROVED"
+              ? "Investment request approved"
+              : "Investment request rejected",
 
           message:
-            `${application.investorName || "A farmer"}'s ৳${Number(
-              application.amount
-            ).toLocaleString(
-              "en-BD"
-            )} commitment to ${application.projectName} was approved. Payment is now pending.`,
+            status ===
+            "APPROVED"
+              ? approvalMessage
+              : `Your investment request for ${application.projectName} was rejected. ${application.adminNote}`,
 
           href:
-            "/dashboard/farmer/investment",
+            "/dashboard/farmer/my-investments",
 
           data: {
             applicationId:
@@ -2718,12 +3275,56 @@ const reviewInvestmentApplicationInDB =
           },
         }
       );
+
+    /* ========================================================
+       PROJECT OWNER NOTIFICATION
+    ======================================================== */
+
+    if (
+      status ===
+      "APPROVED"
+    ) {
+      await NotificationService
+        .createNotification(
+          {
+            userId:
+              application.projectOwnerId,
+
+            type:
+              "INVESTMENT_APPLICATION_APPROVED",
+
+            title:
+              "Investor commitment approved",
+
+            message:
+              `${application.investorName || "A farmer"}'s ৳${Number(
+                application.amount
+              ).toLocaleString(
+                "en-BD"
+              )} commitment to ${application.projectName} was approved. Payment is now pending.`,
+
+            href:
+              "/dashboard/farmer/investment",
+
+            data: {
+              applicationId:
+                String(
+                  application._id
+                ),
+
+              projectId:
+                application.projectId,
+            },
+          }
+        );
     }
 
     return application;
   };
 
-
+/* ============================================================
+   ADMIN - REVIEW BANK PAYMENT
+============================================================ */
 
 const reviewBankPaymentInDB =
   async (
@@ -2790,6 +3391,10 @@ const reviewBankPaymentInDB =
       );
     }
 
+    /* ========================================================
+       PAYMENT CONFIRMED
+    ======================================================== */
+
     if (
       paymentStatus ===
       "PAID"
@@ -2800,11 +3405,16 @@ const reviewBankPaymentInDB =
         )
       );
     } else {
+      /* ======================================================
+         PAYMENT REJECTED
+      ====================================================== */
+
       application.paymentStatus =
         "PAYMENT_REJECTED";
 
       application.paymentAdminNote =
-        paymentAdminNote?.trim() ||
+        paymentAdminNote
+          ?.trim() ||
         "";
 
       application.paymentReviewedAt =
@@ -2812,44 +3422,53 @@ const reviewBankPaymentInDB =
 
       await application.save();
 
-      await NotificationService.createNotification(
-        {
-          userId:
-            application.investorId,
+      await NotificationService
+        .createNotification(
+          {
+            userId:
+              application.investorId,
 
-          type:
-            "INVESTMENT_PAYMENT_REJECTED",
+            type:
+              "INVESTMENT_PAYMENT_REJECTED",
 
-          title:
-            "Bank payment could not be verified",
+            title:
+              "Bank payment could not be verified",
 
-          message:
-            `Payment for ${application.projectName} was not verified. ${application.paymentAdminNote}`,
+            message:
+              `Payment for ${application.projectName} was not verified. ${application.paymentAdminNote}`,
 
-          href:
-            "/dashboard/farmer/my-investments",
+            href:
+              "/dashboard/farmer/my-investments",
 
-          data: {
-            applicationId:
-              String(
-                application._id
-              ),
+            data: {
+              applicationId:
+                String(
+                  application._id
+                ),
 
-            projectId:
-              application.projectId,
-          },
-        }
-      );
+              projectId:
+                application.projectId,
+            },
+          }
+        );
     }
 
-    return InvestmentApplication.findById(
-      application._id
-    ).lean();
+    return InvestmentApplication
+      .findById(
+        application._id
+      )
+      .lean();
   };
 
-
+/* ============================================================
+   EXPORT
+============================================================ */
 
 export const InvestmentService = {
+  /* ==========================================================
+     FARMER PROJECTS
+  ========================================================== */
+
   createInvestmentProjectInDB,
 
   getMyInvestmentProjectsFromDB,
@@ -2860,15 +3479,27 @@ export const InvestmentService = {
 
   deleteMyInvestmentProjectFromDB,
 
+  /* ==========================================================
+     PUBLIC
+  ========================================================== */
+
   getApprovedInvestmentProjectsFromDB,
 
   getApprovedInvestmentProjectByIdFromDB,
+
+  /* ==========================================================
+     ADMIN PROJECTS
+  ========================================================== */
 
   getAdminInvestmentProjectsFromDB,
 
   getAdminInvestmentProjectByIdFromDB,
 
   reviewInvestmentProjectInDB,
+
+  /* ==========================================================
+     INVESTOR
+  ========================================================== */
 
   createInvestmentApplicationInDB,
 
@@ -2882,11 +3513,16 @@ export const InvestmentService = {
 
   verifyStripeInvestmentSession,
 
+  /* ==========================================================
+     ADMIN APPLICATIONS / PAYMENTS
+  ========================================================== */
+
   getAdminInvestmentApplicationsFromDB,
 
   reviewInvestmentApplicationInDB,
 
   reviewBankPaymentInDB,
+
 
   confirmPaidApplication,
 

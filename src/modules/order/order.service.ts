@@ -1,130 +1,26 @@
-import mongoose, {
-  ClientSession,
+import {
   isValidObjectId,
 } from "mongoose";
 
 import AppError from "../../utils/AppError";
-import { Product } from "../product/product.model";
-import { NotificationService } from "../notification/notification.service";
-import { Order } from "./order.model";
 
 import {
-  IOrderItem,
+  Product,
+} from "../product/product.model";
+
+import {
+  Order,
+} from "./order.model";
+
+import {
   IOrderFulfillment,
+  IOrderItem,
   IShippingAddress,
 } from "./order.interface";
 
-const getAuthUserCollection = () =>
-  mongoose.connection
-    .useDb("AgriNove-auth", {
-      useCache: true,
-    })
-    .collection("user");
-
-const normalizeEmail = (
-  value?: string
-) =>
-  String(value || "")
-    .trim()
-    .toLowerCase();
-
-const getOwnedProductIds =
-  async (
-    orders: any[],
-    sellerId: string,
-    sellerEmail: string
-  ) => {
-    const productIds =
-      Array.from(
-        new Set(
-          orders
-            .flatMap((order) =>
-              (
-                order.fulfillments ||
-                []
-              ).flatMap(
-                (
-                  fulfillment: any
-                ) =>
-                  (
-                    fulfillment.items ||
-                    []
-                  ).map(
-                    (item: any) =>
-                      String(
-                        item.productId ||
-                          ""
-                      )
-                  )
-              )
-            )
-            .filter(Boolean)
-        )
-      );
-
-    if (!productIds.length) {
-      return new Set<string>();
-    }
-
-    const normalizedEmail =
-      normalizeEmail(
-        sellerEmail
-      );
-
-    const products =
-      await Product.find({
-        _id: {
-          $in: productIds,
-        },
-
-        $or: [
-          {
-            sellerId,
-          },
-
-          {
-            $and: [
-              {
-                $or: [
-                  {
-                    sellerId: {
-                      $exists:
-                        false,
-                    },
-                  },
-
-                  {
-                    sellerId:
-                      null,
-                  },
-
-                  {
-                    sellerId:
-                      "",
-                  },
-                ],
-              },
-
-              {
-                sellerEmail:
-                  normalizedEmail,
-              },
-            ],
-          },
-        ],
-      })
-        .select("_id")
-        .lean();
-
-    return new Set(
-      products.map(
-        (product) =>
-          String(
-            product._id
-          )
-      )
-    );
-  };
+/* ============================================================
+   CONFIG
+============================================================ */
 
 const getCommissionRate =
   () => {
@@ -147,6 +43,9 @@ const getCommissionRate =
     return value;
   };
 
+/**
+ * Delivery fee PER seller.
+ */
 const getDeliveryFee =
   () => {
     const value =
@@ -168,18 +67,42 @@ const getDeliveryFee =
     return value;
   };
 
+/* ============================================================
+   2A - CHECKOUT CONFIG
+============================================================ */
+
 const getCheckoutConfig =
-  () => ({
-    deliveryFee:
-      getDeliveryFee(),
-  });
+  () => {
+    const fee =
+      getDeliveryFee();
+
+    return {
+      /**
+       * Old client compatibility.
+       */
+      deliveryFee:
+        fee,
+
+      /**
+       * New multi-seller meaning.
+       */
+      deliveryFeePerSeller:
+        fee,
+    };
+  };
+
+/* ============================================================
+   ORDER NUMBER
+============================================================ */
 
 const generateOrderNumber =
   () => {
     const timestamp =
       Date.now()
         .toString()
-        .slice(-8);
+        .slice(
+          -8
+        );
 
     const random =
       Math.floor(
@@ -191,567 +114,178 @@ const generateOrderNumber =
     return `AN-${timestamp}-${random}`;
   };
 
-const toBuyerOrderView = (
-  order: any
-) => {
-  const plain =
-    typeof order?.toObject ===
-    "function"
-      ? order.toObject()
-      : order;
+/* ============================================================
+   MASTER ORDER STATUS
+============================================================ */
 
-  return {
-    ...plain,
-
-    items: (
-      plain.items || []
-    ).map((item: any) => {
-      const {
-        sellerEmail:
-          _sellerEmail,
-        ...safeItem
-      } = item;
-
-      return safeItem;
-    }),
-
-    fulfillments: (
-      plain.fulfillments ||
-      []
-    ).map(
-      (
-        fulfillment: any
-      ) => {
-        const {
-          sellerEmail:
-            _sellerEmail,
-          ...safeFulfillment
-        } = fulfillment;
-
-        return {
-          ...safeFulfillment,
-
-          items: (
-            fulfillment.items ||
-            []
-          ).map(
-            (item: any) => {
-              const {
-                sellerEmail:
-                  _itemSellerEmail,
-                ...safeItem
-              } = item;
-
-              return safeItem;
-            }
-          ),
-        };
-      }
-    ),
-  };
-};
-
-const matchesSellerIdentity =
+const recalculateOrderStatus =
   (
-    fulfillment: any,
-    sellerId: string,
-    sellerEmail: string
+    order:
+      any
   ) => {
-    const fulfillmentSellerId =
-      String(
-        fulfillment?.sellerId ||
-          ""
-      );
-
-    if (
-      fulfillmentSellerId
-    ) {
-      return (
-        fulfillmentSellerId ===
-        sellerId
-      );
-    }
-
-    return (
-      String(
-        fulfillment?.sellerEmail ||
-          ""
-      )
-        .trim()
-        .toLowerCase() ===
-      sellerEmail
-        .trim()
-        .toLowerCase()
-    );
-  };
-
-const sellerOrderIdentityQuery =
-  (
-    sellerId: string,
-    sellerEmail: string
-  ) => {
-    const normalizedEmail =
-      normalizeEmail(
-        sellerEmail
-      );
-
-    return {
-      $or: [
-        {
-          "fulfillments.sellerId":
-            sellerId,
-        },
-
-        {
-          "fulfillments.items.sellerId":
-            sellerId,
-        },
-
-        {
-          fulfillments: {
-            $elemMatch: {
-              $and: [
-                {
-                  $or: [
-                    {
-                      sellerId: {
-                        $exists:
-                          false,
-                      },
-                    },
-
-                    {
-                      sellerId:
-                        null,
-                    },
-
-                    {
-                      sellerId:
-                        "",
-                    },
-
-                    {
-                      sellerId:
-                        "unknown-seller",
-                    },
-                  ],
-                },
-
-                {
-                  sellerEmail:
-                    normalizedEmail,
-                },
-              ],
-            },
-          },
-        },
-
-        {
-          fulfillments: {
-            $elemMatch: {
-              items: {
-                $elemMatch: {
-                  $and: [
-                    {
-                      $or: [
-                        {
-                          sellerId:
-                            {
-                              $exists:
-                                false,
-                            },
-                        },
-
-                        {
-                          sellerId:
-                            null,
-                        },
-
-                        {
-                          sellerId:
-                            "",
-                        },
-
-                        {
-                          sellerId:
-                            "unknown-seller",
-                        },
-                      ],
-                    },
-
-                    {
-                      sellerEmail:
-                        normalizedEmail,
-                    },
-                  ],
-                },
-              },
-            },
-          },
-        },
-      ],
-    };
-  };
-
-const itemBelongsToSeller =
-  (
-    item: any,
-    sellerId: string,
-    sellerEmail: string,
-    ownedProductIds?: Set<string>
-  ) => {
-    const productId =
-      String(
-        item?.productId ||
-          ""
-      );
-
-    if (
-      ownedProductIds?.has(
-        productId
-      )
-    ) {
-      return true;
-    }
-
-    const itemSellerId =
-      String(
-        item?.sellerId ||
-          ""
-      ).trim();
-
-    if (
-      itemSellerId &&
-      itemSellerId !==
-        "unknown-seller"
-    ) {
-      return (
-        itemSellerId ===
-        sellerId
-      );
-    }
-
-    return (
-      normalizeEmail(
-        item?.sellerEmail
-      ) ===
-      normalizeEmail(
-        sellerEmail
-      )
-    );
-  };
-
-const toSellerOrderView =
-  (
-    order: any,
-    sellerId: string,
-    sellerEmail: string,
-    ownedProductIds?: Set<string>
-  ) => {
-    const plain =
-      typeof order?.toObject ===
-      "function"
-        ? order.toObject()
-        : order;
-
-    const sellerParts = (
-      plain.fulfillments ||
-      []
-    )
-      .map(
+    const statuses =
+      order.fulfillments.map(
         (
-          fulfillment: any
-        ) => {
-          const ownedItems =
-            (
-              fulfillment.items ||
-              []
-            ).filter(
-              (item: any) =>
-                itemBelongsToSeller(
-                  item,
-                  sellerId,
-                  sellerEmail,
-                  ownedProductIds
-                )
-            );
-
-          if (
-            !ownedItems.length
-          ) {
-            return null;
-          }
-
-          return {
-            fulfillment,
-            ownedItems,
-          };
-        }
-      )
-      .filter(Boolean) as {
-      fulfillment: any;
-      ownedItems: any[];
-    }[];
-
-    if (!sellerParts.length) {
-      return null;
-    }
-
-    const safeItems =
-      sellerParts.flatMap(
-        ({
-          ownedItems,
-        }) =>
-          ownedItems.map(
-            (item: any) => ({
-              productId:
-                item.productId,
-
-              title:
-                item.title,
-
-              image:
-                item.image,
-
-              quantity:
-                item.quantity,
-
-              unit:
-                item.unit,
-
-              price:
-                item.price,
-
-              subtotal:
-                item.subtotal,
-            })
-          )
+          item:
+            any
+        ) =>
+          item.status
       );
-
-    const subtotal =
-      Number(
-        safeItems
-          .reduce(
-            (
-              sum,
-              item
-            ) =>
-              sum +
-              Number(
-                item.subtotal ||
-                  0
-              ),
-            0
-          )
-          .toFixed(2)
-      );
-
-    const firstFulfillment =
-      sellerParts[0]
-        .fulfillment;
-
-    const commissionRate =
-      Number(
-        firstFulfillment.commissionRate ||
-          0
-      );
-
-    const commissionAmount =
-      Number(
-        (
-          (subtotal *
-            commissionRate) /
-          100
-        ).toFixed(2)
-      );
-
-    const sellerPayout =
-      Number(
-        (
-          subtotal -
-          commissionAmount
-        ).toFixed(2)
-      );
-
-    return {
-      _id: String(
-        plain._id
-      ),
-
-      orderNumber:
-        plain.orderNumber,
-
-      customerName:
-        plain.customerName,
-
-      deliveryDistrict:
-        plain
-          .shippingAddress
-          ?.district || "",
-
-      paymentMethod:
-        plain.paymentMethod,
-
-      paymentStatus:
-        plain.paymentStatus,
-
-      status:
-        plain.status,
-
-      createdAt:
-        plain.createdAt,
-
-      updatedAt:
-        plain.updatedAt,
-
-      fulfillment: {
-        sellerId,
-
-        sellerName:
-          firstFulfillment.sellerName,
-
-        items:
-          safeItems,
-
-        subtotal,
-
-        commissionRate,
-
-        commissionAmount,
-
-        sellerPayout,
-
-        status:
-          firstFulfillment.status,
-
-        pickupAddress:
-          firstFulfillment.pickupAddress,
-
-        deliveryPartner:
-          firstFulfillment.deliveryPartner,
-      },
-    };
-  };
-
-const notifyNewOrderSellers =
-  async (
-    order: any
-  ) => {
-    const notifications =
-      (
-        order.fulfillments ||
-        []
-      )
-        .filter(
-          (
-            fulfillment: any
-          ) =>
-            fulfillment.sellerId
-        )
-        .map(
-          (
-            fulfillment: any
-          ) => ({
-            userId:
-              String(
-                fulfillment.sellerId
-              ),
-
-            type:
-              "MARKETPLACE_NEW_ORDER" as const,
-
-            title:
-              "New marketplace order",
-
-            message: `You received a new order (${order.orderNumber}) for ${fulfillment.items.length} item${fulfillment.items.length === 1 ? "" : "s"}.`,
-
-            href:
-              "/seller-orders",
-
-            data: {
-              orderId:
-                String(
-                  order._id
-                ),
-
-              orderNumber:
-                order.orderNumber,
-            },
-          })
-        );
 
     if (
-      notifications.length
+      statuses.length ===
+      0
     ) {
-      await NotificationService.createManyNotifications(
-        notifications
-      );
-    }
-  };
+      order.status =
+        "pending";
 
-const notifyAdminsReadyForPickup =
-  async (
-    order: any,
-    fulfillment: any
-  ) => {
-    const admins =
-      await getAuthUserCollection()
-        .find({
-          role:
-            "ADMIN",
-
-          status: {
-            $nin: [
-              "BLOCKED",
-              "REJECTED",
-              "PENDING",
-            ],
-          },
-        })
-        .project({
-          _id: 1,
-        })
-        .toArray();
-
-    if (!admins.length) {
       return;
     }
 
-    await NotificationService.createManyNotifications(
-      admins.map(
-        (admin) => ({
-          userId:
-            String(
-              admin._id
-            ),
+    const allCancelled =
+      statuses.every(
+        (
+          status:
+            string
+        ) =>
+          status ===
+          "cancelled"
+      );
 
-          type:
-            "MARKETPLACE_READY_FOR_PICKUP" as const,
+    const allDelivered =
+      statuses.every(
+        (
+          status:
+            string
+        ) =>
+          status ===
+          "delivered"
+      );
 
-          title:
-            "Marketplace pickup ready",
+    const anyDelivered =
+      statuses.some(
+        (
+          status:
+            string
+        ) =>
+          status ===
+          "delivered"
+      );
 
-          message: `${fulfillment.sellerName} marked order ${order.orderNumber} ready for pickup.`,
+    const anyOutForDelivery =
+      statuses.some(
+        (
+          status:
+            string
+        ) =>
+          status ===
+          "out_for_delivery"
+      );
 
-          href:
-            "/dashboard/admin/marketplace?tab=fulfillment",
+    const anyPickedUp =
+      statuses.some(
+        (
+          status:
+            string
+        ) =>
+          status ===
+          "picked_up"
+      );
 
-          data: {
-            orderId:
-              String(
-                order._id
-              ),
+    const allReadyForPickup =
+      statuses.every(
+        (
+          status:
+            string
+        ) =>
+          status ===
+          "ready_for_pickup"
+      );
 
-            orderNumber:
-              order.orderNumber,
+    const anyReadyForPickup =
+      statuses.some(
+        (
+          status:
+            string
+        ) =>
+          status ===
+          "ready_for_pickup"
+      );
 
-            sellerId:
-              fulfillment.sellerId,
-          },
-        })
-      )
-    );
+    const anyProcessing =
+      statuses.some(
+        (
+          status:
+            string
+        ) =>
+          status ===
+          "processing"
+      );
+
+    const anyConfirmed =
+      statuses.some(
+        (
+          status:
+            string
+        ) =>
+          status ===
+          "confirmed"
+      );
+
+    if (
+      allCancelled
+    ) {
+      order.status =
+        "cancelled";
+    } else if (
+      allDelivered
+    ) {
+      order.status =
+        "delivered";
+    } else if (
+      anyDelivered
+    ) {
+      order.status =
+        "partially_fulfilled";
+    } else if (
+      anyOutForDelivery
+    ) {
+      order.status =
+        "out_for_delivery";
+    } else if (
+      anyPickedUp
+    ) {
+      order.status =
+        "picked_up";
+    } else if (
+      allReadyForPickup
+    ) {
+      order.status =
+        "ready_for_pickup";
+    } else if (
+      anyReadyForPickup
+    ) {
+      order.status =
+        "partially_fulfilled";
+    } else if (
+      anyProcessing
+    ) {
+      order.status =
+        "processing";
+    } else if (
+      anyConfirmed
+    ) {
+      order.status =
+        "confirmed";
+    } else {
+      order.status =
+        "pending";
+    }
   };
+
+/* ============================================================
+   CREATE ORDER
+============================================================ */
 
 const createOrderInDB =
   async (
@@ -762,6 +296,8 @@ const createOrderInDB =
     },
 
     payload: {
+      idempotencyKey: string;
+
       items: {
         productId: string;
         quantity: number;
@@ -777,53 +313,150 @@ const createOrderInDB =
       notes?: string;
     }
   ) => {
-    const productIds =
-      payload.items.map(
-        (item) =>
-          item.productId
+    const idempotencyKey =
+      payload.idempotencyKey
+        .trim();
+
+    if (
+      !idempotencyKey
+    ) {
+      throw new AppError(
+        400,
+        "Checkout request key is required"
+      );
+    }
+
+    /* ========================================================
+       FIRST IDEMPOTENCY CHECK
+    ======================================================== */
+
+    const existingOrder =
+      await Order.findOne(
+        {
+          customerId:
+            customer.id,
+
+          idempotencyKey,
+        }
       );
 
-    const uniqueProductIds =
-      [
-        ...new Set(
-          productIds
-        ),
-      ];
+    if (
+      existingOrder
+    ) {
+      return existingOrder;
+    }
+
+    if (
+      !Array.isArray(
+        payload.items
+      ) ||
+      payload.items.length ===
+        0
+    ) {
+      throw new AppError(
+        400,
+        "Order must contain at least one product"
+      );
+    }
+
+    /* ========================================================
+       MERGE DUPLICATE PRODUCT IDS
+    ======================================================== */
+
+    const quantityMap =
+      new Map<
+        string,
+        number
+      >();
 
     for (
-      const id of
-      uniqueProductIds
+      const item of
+        payload.items
     ) {
       if (
         !isValidObjectId(
-          id
+          item.productId
         )
       ) {
         throw new AppError(
           400,
-          `Invalid product ID: ${id}`
+          `Invalid product ID: ${item.productId}`
         );
       }
+
+      if (
+        !Number.isInteger(
+          item.quantity
+        ) ||
+        item.quantity <=
+          0
+      ) {
+        throw new AppError(
+          400,
+          "Product quantity must be a positive integer"
+        );
+      }
+
+      quantityMap.set(
+        item.productId,
+        (
+          quantityMap.get(
+            item.productId
+          ) ||
+          0
+        ) +
+          item.quantity
+      );
     }
 
+    const normalizedItems =
+      Array.from(
+        quantityMap.entries()
+      ).map(
+        (
+          [
+            productId,
+            quantity,
+          ]
+        ) => ({
+          productId,
+          quantity,
+        })
+      );
+
+    const productIds =
+      normalizedItems.map(
+        (
+          item
+        ) =>
+          item.productId
+      );
+
+    /* ========================================================
+       LOAD PRODUCTS
+    ======================================================== */
+
     const products =
-      await Product.find({
-        _id: {
-          $in:
-            uniqueProductIds,
-        },
+      await Product.find(
+        {
+          _id: {
+            $in:
+              productIds,
+          },
 
-        isDeleted: {
-          $ne: true,
-        },
+          isDeleted: {
+            $ne:
+              true,
+          },
 
-        status:
-          "available",
-      });
+          status:
+            "available",
+        }
+      );
 
     if (
       products.length !==
-      uniqueProductIds.length
+      productIds.length
     ) {
       throw new AppError(
         400,
@@ -834,10 +467,13 @@ const createOrderInDB =
     const productMap =
       new Map(
         products.map(
-          (product) => [
+          (
+            product
+          ) => [
             String(
               product._id
             ),
+
             product,
           ]
         )
@@ -847,175 +483,55 @@ const createOrderInDB =
       getCommissionRate();
 
     const orderItems:
-      IOrderItem[] = [];
+      IOrderItem[] =
+      [];
 
-    const normalizedCustomerEmail =
-      normalizeEmail(
-        customer.email
-      );
-
-    const legacySellerEmails =
-      Array.from(
-        new Set(
-          products
-            .filter(
-              (product) =>
-                !String(
-                  product.sellerId ||
-                    ""
-                ).trim()
-            )
-            .map((product) =>
-              normalizeEmail(
-                product.sellerEmail
-              )
-            )
-            .filter(Boolean)
-        )
-      );
-
-    const legacySellerMap =
-      new Map<
-        string,
-        {
-          id: string;
-          name?: string;
-        }
-      >();
-
-    if (
-      legacySellerEmails.length
-    ) {
-      const legacyUsers =
-        await getAuthUserCollection()
-          .find({
-            email: {
-              $in:
-                legacySellerEmails,
-            },
-          })
-          .project({
-            _id: 1,
-            email: 1,
-            name: 1,
-          })
-          .toArray();
-
-      legacyUsers.forEach(
-        (user: any) => {
-          legacySellerMap.set(
-            normalizeEmail(
-              user.email
-            ),
-            {
-              id: String(
-                user._id
-              ),
-
-              name:
-                typeof user.name ===
-                "string"
-                  ? user.name
-                  : undefined,
-            }
-          );
-        }
-      );
-    }
-
-    const sellerBackfills: {
-      productId: string;
-      sellerId: string;
-    }[] = [];
+    /* ========================================================
+       BUILD ORDER ITEMS
+    ======================================================== */
 
     for (
       const cartItem of
-      payload.items
+        normalizedItems
     ) {
       const product =
         productMap.get(
           cartItem.productId
         );
 
-      if (!product) {
+      if (
+        !product
+      ) {
         throw new AppError(
           404,
           "Product not found"
         );
       }
 
-      const productSellerEmail =
-        normalizeEmail(
-          product.sellerEmail
+      if (
+        cartItem.quantity >
+        Number(
+          product.quantity
+        )
+      ) {
+        throw new AppError(
+          400,
+          `${product.title} has only ${product.quantity} ${product.unit} available`
         );
+      }
 
-      let resolvedSellerId =
+      const sellerId =
         String(
           product.sellerId ||
             ""
         ).trim();
 
       if (
-        !resolvedSellerId &&
-        productSellerEmail
-      ) {
-        const legacySeller =
-          legacySellerMap.get(
-            productSellerEmail
-          );
-
-        if (
-          legacySeller?.id
-        ) {
-          resolvedSellerId =
-            legacySeller.id;
-
-          sellerBackfills.push(
-            {
-              productId:
-                String(
-                  product._id
-                ),
-
-              sellerId:
-                legacySeller.id,
-            }
-          );
-        }
-      }
-
-      if (
-        !resolvedSellerId
-      ) {
-        throw new AppError(
-          409,
-          `The seller account for "${product.title}" could not be verified. Please remove this item from the cart and contact AgriNova support.`
-        );
-      }
-
-      const isOwnProduct =
-        resolvedSellerId ===
-          customer.id ||
-        Boolean(
-          productSellerEmail &&
-            productSellerEmail ===
-              normalizedCustomerEmail
-        );
-
-      if (isOwnProduct) {
-        throw new AppError(
-          400,
-          `You cannot buy your own marketplace listing: ${product.title}`
-        );
-      }
-
-      if (
-        cartItem.quantity >
-        product.quantity
+        !sellerId
       ) {
         throw new AppError(
           400,
-          `${product.title} has only ${product.quantity} ${product.unit} available`
+          `Product "${product.title}" does not have a valid seller`
         );
       }
 
@@ -1024,89 +540,62 @@ const createOrderInDB =
           product.price
         );
 
-      const subtotal =
-        price *
-        cartItem.quantity;
+      const itemSubtotal =
+        Number(
+          (
+            price *
+            cartItem.quantity
+          ).toFixed(
+            2
+          )
+        );
 
-      orderItems.push({
-        productId:
-          String(
-            product._id
-          ),
+      orderItems.push(
+        {
+          productId:
+            String(
+              product._id
+            ),
 
-        title:
-          product.title,
+          title:
+            product.title,
 
-        image:
-          product.images?.[0],
+          image:
+            product.images?.[
+              0
+            ],
 
-        sellerId:
-          resolvedSellerId,
+          sellerId,
 
-        sellerName:
-          product.sellerName ||
-          "AgriNova Seller",
+          sellerName:
+            product.sellerName ||
+            "AgriNova Seller",
 
-        sellerEmail:
-          product.sellerEmail ||
-          "",
+          sellerEmail:
+            (
+              product.sellerEmail ||
+              ""
+            )
+              .trim()
+              .toLowerCase(),
 
-        quantity:
-          cartItem.quantity,
+          quantity:
+            cartItem.quantity,
 
-        unit:
-          product.unit,
+          unit:
+            product.unit,
 
-        price,
+          price,
 
-        subtotal,
-      });
-    }
-
-    if (
-      sellerBackfills.length
-    ) {
-      await Product.bulkWrite(
-        sellerBackfills.map(
-          ({
-            productId,
-            sellerId,
-          }) => ({
-            updateOne: {
-              filter: {
-                _id:
-                  productId,
-
-                $or: [
-                  {
-                    sellerId: {
-                      $exists:
-                        false,
-                    },
-                  },
-
-                  {
-                    sellerId:
-                      null,
-                  },
-
-                  {
-                    sellerId:
-                      "",
-                  },
-                ],
-              },
-
-              update: {
-                $set: {
-                  sellerId,
-                },
-              },
-            },
-          })
-        )
+          subtotal:
+            itemSubtotal,
+        }
       );
     }
+
+    /* ========================================================
+       GROUP BY SELLER
+    ======================================================== */
 
     const grouped =
       new Map<
@@ -1116,24 +605,19 @@ const createOrderInDB =
 
     for (
       const item of
-      orderItems
+        orderItems
     ) {
       const sellerKey =
-        item.sellerId?.trim();
-
-      if (!sellerKey) {
-        throw new AppError(
-          400,
-          `Product "${item.title}" does not have a valid seller`
-        );
-      }
+        item.sellerId;
 
       const existing =
         grouped.get(
           sellerKey
         );
 
-      if (existing) {
+      if (
+        existing
+      ) {
         existing.items.push(
           item
         );
@@ -1143,16 +627,13 @@ const createOrderInDB =
             (
               existing.subtotal +
               item.subtotal
-            ).toFixed(2)
+            ).toFixed(
+              2
+            )
           );
 
         continue;
       }
-
-      const sourceProduct =
-        productMap.get(
-          item.productId
-        );
 
       grouped.set(
         sellerKey,
@@ -1164,9 +645,7 @@ const createOrderInDB =
             item.sellerName,
 
           sellerEmail:
-            item.sellerEmail
-              .trim()
-              .toLowerCase(),
+            item.sellerEmail,
 
           items: [
             item,
@@ -1179,6 +658,12 @@ const createOrderInDB =
               )
             ),
 
+          /**
+           * One delivery fee per seller.
+           */
+          deliveryFee:
+            getDeliveryFee(),
+
           commissionRate,
 
           commissionAmount:
@@ -1189,45 +674,54 @@ const createOrderInDB =
 
           status:
             "pending",
-
-          pickupAddress:
-            [
-              sourceProduct?.location,
-              sourceProduct?.upazila,
-              sourceProduct?.district,
-              sourceProduct?.division,
-            ]
-              .filter(
-                Boolean
-              )
-              .join(", ") ||
-            undefined,
         }
       );
     }
 
     const fulfillments =
-      [
-        ...grouped.values(),
-      ];
+      Array.from(
+        grouped.values()
+      );
 
-    let subtotal = 0;
+    if (
+      fulfillments.length ===
+      0
+    ) {
+      throw new AppError(
+        400,
+        "Order does not contain any valid seller"
+      );
+    }
+
+    /* ========================================================
+       CALCULATIONS
+    ======================================================== */
+
+    let subtotal =
+      0;
+
+    let deliveryFee =
+      0;
+
     let commissionAmount =
       0;
+
     let sellerPayoutAmount =
       0;
 
     for (
       const fulfillment of
-      fulfillments
+        fulfillments
     ) {
       const commission =
         Number(
           (
-            (fulfillment.subtotal *
-              commissionRate) /
+            fulfillment.subtotal *
+            commissionRate /
             100
-          ).toFixed(2)
+          ).toFixed(
+            2
+          )
         );
 
       const payout =
@@ -1235,7 +729,9 @@ const createOrderInDB =
           (
             fulfillment.subtotal -
             commission
-          ).toFixed(2)
+          ).toFixed(
+            2
+          )
         );
 
       fulfillment.commissionAmount =
@@ -1247,6 +743,12 @@ const createOrderInDB =
       subtotal +=
         fulfillment.subtotal;
 
+      deliveryFee +=
+        Number(
+          fulfillment.deliveryFee ||
+            0
+        );
+
       commissionAmount +=
         commission;
 
@@ -1254,28 +756,90 @@ const createOrderInDB =
         payout;
     }
 
-    const deliveryFee =
-      getDeliveryFee();
+    subtotal =
+      Number(
+        subtotal.toFixed(
+          2
+        )
+      );
+
+    deliveryFee =
+      Number(
+        deliveryFee.toFixed(
+          2
+        )
+      );
+
+    commissionAmount =
+      Number(
+        commissionAmount.toFixed(
+          2
+        )
+      );
+
+    sellerPayoutAmount =
+      Number(
+        sellerPayoutAmount.toFixed(
+          2
+        )
+      );
 
     const totalAmount =
       Number(
         (
           subtotal +
           deliveryFee
-        ).toFixed(2)
+        ).toFixed(
+          2
+        )
       );
+
+    /* ========================================================
+       TRANSACTION
+    ======================================================== */
 
     const session =
       await Product.startSession();
 
     try {
-      let createdOrder: any;
+      let createdOrder:
+        any =
+        null;
 
       await session.withTransaction(
         async () => {
+          /* ==================================================
+             SECOND IDEMPOTENCY CHECK
+          ================================================== */
+
+          const duplicate =
+            await Order.findOne(
+              {
+                customerId:
+                  customer.id,
+
+                idempotencyKey,
+              }
+            ).session(
+              session
+            );
+
+          if (
+            duplicate
+          ) {
+            createdOrder =
+              duplicate;
+
+            return;
+          }
+
+          /* ==================================================
+             ATOMIC STOCK DEDUCTION
+          ================================================== */
+
           for (
             const cartItem of
-            payload.items
+              normalizedItems
           ) {
             const updated =
               await Product.findOneAndUpdate(
@@ -1284,7 +848,8 @@ const createOrderInDB =
                     cartItem.productId,
 
                   isDeleted: {
-                    $ne: true,
+                    $ne:
+                      true,
                   },
 
                   status:
@@ -1304,7 +869,9 @@ const createOrderInDB =
                 },
 
                 {
-                  new: true,
+                  new:
+                    true,
+
                   session,
 
                   runValidators:
@@ -1312,7 +879,9 @@ const createOrderInDB =
                 }
               );
 
-            if (!updated) {
+            if (
+              !updated
+            ) {
               throw new AppError(
                 409,
                 "Product stock changed. Please refresh your cart and try again."
@@ -1322,7 +891,8 @@ const createOrderInDB =
             if (
               Number(
                 updated.quantity
-              ) <= 0
+              ) <=
+              0
             ) {
               await Product.updateOne(
                 {
@@ -1344,10 +914,16 @@ const createOrderInDB =
             }
           }
 
+          /* ==================================================
+             CREATE ORDER
+          ================================================== */
+
           const created =
             await Order.create(
               [
                 {
+                  idempotencyKey,
+
                   orderNumber:
                     generateOrderNumber(),
 
@@ -1390,39 +966,81 @@ const createOrderInDB =
                   paymentStatus:
                     "pending",
 
+                  stockRestored:
+                    false,
+
                   notes:
                     payload.notes,
                 },
               ],
+
               {
                 session,
               }
             );
 
           createdOrder =
-            created[0];
+            created[
+              0
+            ];
         }
       );
 
       if (
-        createdOrder &&
-        createdOrder.paymentMethod ===
-          "cod"
+        createdOrder
       ) {
-        await notifyNewOrderSellers(
-          createdOrder
-        );
+        return createdOrder;
       }
 
-      return createdOrder;
+      throw new AppError(
+        500,
+        "Order could not be created"
+      );
+    } catch (
+      error:
+        any
+    ) {
+      /**
+       * Two identical requests can arrive at almost
+       * the same time.
+       *
+       * Unique index makes only one survive.
+       */
+      if (
+        error?.code ===
+        11000
+      ) {
+        const duplicate =
+          await Order.findOne(
+            {
+              customerId:
+                customer.id,
+
+              idempotencyKey,
+            }
+          );
+
+        if (
+          duplicate
+        ) {
+          return duplicate;
+        }
+      }
+
+      throw error;
     } finally {
       await session.endSession();
     }
   };
 
+/* ============================================================
+   2B - BUYER MY ORDERS + PAGINATION
+============================================================ */
+
 const getMyOrdersFromDB =
   async (
-    customerId: string,
+    customerId:
+      string,
 
     query: {
       page?: string;
@@ -1433,7 +1051,8 @@ const getMyOrdersFromDB =
       Math.max(
         Number(
           query.page
-        ) || 1,
+        ) ||
+          1,
         1
       );
 
@@ -1442,62 +1061,86 @@ const getMyOrdersFromDB =
         Math.max(
           Number(
             query.limit
-          ) || 10,
+          ) ||
+            10,
           1
         ),
         50
       );
 
     const skip =
-      (page - 1) *
+      (
+        page -
+        1
+      ) *
       limit;
 
     const [
-      orders,
+      data,
       total,
     ] =
-      await Promise.all([
-        Order.find({
-          customerId,
-        })
-          .sort({
-            createdAt: -1,
-          })
-          .skip(skip)
-          .limit(limit)
-          .lean(),
+      await Promise.all(
+        [
+          Order.find(
+            {
+              customerId,
+            }
+          )
+            .sort(
+              {
+                createdAt:
+                  -1,
+              }
+            )
+            .skip(
+              skip
+            )
+            .limit(
+              limit
+            )
+            .lean(),
 
-        Order.countDocuments({
-          customerId,
-        }),
-      ]);
+          Order.countDocuments(
+            {
+              customerId,
+            }
+          ),
+        ]
+      );
 
     return {
       meta: {
         page,
+
         limit,
+
         total,
 
         totalPages:
           Math.max(
             Math.ceil(
-              total / limit
+              total /
+                limit
             ),
             1
           ),
       },
 
-      data:
-        orders.map(
-          toBuyerOrderView
-        ),
+      data,
     };
   };
 
+/* ============================================================
+   BUYER - GET ONE ORDER
+============================================================ */
+
 const getMyOrderByIdFromDB =
   async (
-    orderId: string,
-    customerId: string
+    orderId:
+      string,
+
+    customerId:
+      string
   ) => {
     if (
       !isValidObjectId(
@@ -1511,29 +1154,38 @@ const getMyOrderByIdFromDB =
     }
 
     const order =
-      await Order.findOne({
-        _id:
-          orderId,
+      await Order.findOne(
+        {
+          _id:
+            orderId,
 
-        customerId,
-      }).lean();
+          customerId,
+        }
+      ).lean();
 
-    if (!order) {
+    if (
+      !order
+    ) {
       throw new AppError(
         404,
         "Order not found"
       );
     }
 
-    return toBuyerOrderView(
-      order
-    );
+    return order;
   };
+
+/* ============================================================
+   SELLER - GET OWN ORDERS
+============================================================ */
 
 const getSellerOrdersFromDB =
   async (
-    sellerId: string,
-    sellerEmail: string
+    sellerId:
+      string,
+
+    sellerEmail:
+      string
   ) => {
     const normalizedEmail =
       sellerEmail
@@ -1541,61 +1193,70 @@ const getSellerOrdersFromDB =
         .toLowerCase();
 
     const orders =
-      await Order.find({
-        $and: [
-          sellerOrderIdentityQuery(
-            sellerId,
-            normalizedEmail
-          ),
+      await Order.find(
+        {
+          $or: [
+            {
+              "fulfillments.sellerId":
+                sellerId,
+            },
 
+            {
+              "fulfillments.sellerEmail":
+                normalizedEmail,
+            },
+          ],
+        }
+      )
+        .sort(
           {
-            $or: [
-              {
-                paymentMethod:
-                  "cod",
-              },
-
-              {
-                paymentMethod:
-                  "card",
-
-                paymentStatus:
-                  "paid",
-              },
-            ],
-          },
-        ],
-      })
-        .sort({
-          createdAt: -1,
-        })
+            createdAt:
+              -1,
+          }
+        )
         .lean();
 
-    const ownedProductIds =
-      await getOwnedProductIds(
-        orders,
-        sellerId,
-        normalizedEmail
-      );
+    /**
+     * Never return other sellers'
+     * fulfillment data to this seller.
+     */
+    return orders.map(
+      (
+        order
+      ) => ({
+        ...order,
 
-    return orders
-      .map((order) =>
-        toSellerOrderView(
-          order,
-          sellerId,
-          normalizedEmail,
-          ownedProductIds
-        )
-      )
-      .filter(Boolean);
+        fulfillments:
+          order.fulfillments.filter(
+            (
+              fulfillment
+            ) =>
+              fulfillment.sellerId ===
+                sellerId ||
+              fulfillment.sellerEmail ===
+                normalizedEmail
+          ),
+      })
+    );
   };
+
+/* ============================================================
+   SELLER - UPDATE OWN FULFILLMENT
+============================================================ */
 
 const updateSellerFulfillment =
   async (
-    orderId: string,
-    sellerId: string,
-    sellerEmail: string,
-    status: any
+    orderId:
+      string,
+
+    sellerId:
+      string,
+
+    sellerEmail:
+      string,
+
+    status:
+      any
   ) => {
     const SELLER_ALLOWED_STATUSES =
       [
@@ -1632,276 +1293,114 @@ const updateSellerFulfillment =
         .toLowerCase();
 
     const order =
-      await Order.findOne({
-        _id:
-          orderId,
+      await Order.findOne(
+        {
+          _id:
+            orderId,
 
-        $and: [
-          sellerOrderIdentityQuery(
-            sellerId,
-            normalizedEmail
-          ),
+          $or: [
+            {
+              "fulfillments.sellerId":
+                sellerId,
+            },
 
-          {
-            $or: [
-              {
-                paymentMethod:
-                  "cod",
-              },
+            {
+              "fulfillments.sellerEmail":
+                normalizedEmail,
+            },
+          ],
+        }
+      );
 
-              {
-                paymentMethod:
-                  "card",
-
-                paymentStatus:
-                  "paid",
-              },
-            ],
-          },
-        ],
-      });
-
-    if (!order) {
+    if (
+      !order
+    ) {
       throw new AppError(
         404,
         "Order not found"
       );
     }
 
-    const ownedProductIds =
-      await getOwnedProductIds(
-        [
-          order.toObject(),
-        ],
-        sellerId,
-        normalizedEmail
-      );
-
     const fulfillment =
       order.fulfillments.find(
-        (item: any) =>
-          matchesSellerIdentity(
-            item,
-            sellerId,
+        (
+          item
+        ) =>
+          item.sellerId ===
+            sellerId ||
+          item.sellerEmail ===
             normalizedEmail
-          ) ||
-          (
-            item.items ||
-            []
-          ).some(
-            (
-              orderItem: any
-            ) =>
-              itemBelongsToSeller(
-                orderItem,
-                sellerId,
-                normalizedEmail,
-                ownedProductIds
-              )
-          )
       );
 
-    if (!fulfillment) {
+    if (
+      !fulfillment
+    ) {
       throw new AppError(
         403,
         "You are not a seller in this order"
       );
     }
 
-    const containsAnotherSellerItem =
-      (
-        fulfillment.items ||
-        []
-      ).some(
-        (
-          orderItem: any
-        ) =>
-          !itemBelongsToSeller(
-            orderItem,
-            sellerId,
-            normalizedEmail,
-            ownedProductIds
-          )
-      );
+    const allowedNextStatuses:
+      Record<
+        string,
+        string[]
+      > = {
+        pending: [
+          "confirmed",
+        ],
 
-    if (
-      containsAnotherSellerItem
-    ) {
-      throw new AppError(
-        409,
-        "This legacy order contains products from multiple sellers in one fulfillment. AgriNova must repair the order before its seller status can be changed."
-      );
-    }
+        confirmed: [
+          "processing",
+        ],
 
-    const currentStatus =
-      fulfillment.status;
+        processing: [
+          "ready_for_pickup",
+        ],
 
-    const allowedNextStatuses: Record<
-      string,
-      string[]
-    > = {
-      pending: [
-        "confirmed",
-      ],
-
-      confirmed: [
-        "processing",
-      ],
-
-      processing: [
-        "ready_for_pickup",
-      ],
-
-      ready_for_pickup:
-        [],
-    };
+        ready_for_pickup:
+          [],
+      };
 
     if (
       !allowedNextStatuses[
-        currentStatus
-      ]?.includes(status)
+        fulfillment.status
+      ]?.includes(
+        status
+      )
     ) {
       throw new AppError(
         400,
-        `Invalid status transition: ${currentStatus} → ${status}`
+        `Invalid status transition: ${fulfillment.status} → ${status}`
       );
     }
 
     fulfillment.status =
       status;
 
-    const statuses =
-      order.fulfillments.map(
-        (item) =>
-          item.status
-      );
-
-    const allDelivered =
-      statuses.length > 0 &&
-      statuses.every(
-        (item) =>
-          item ===
-          "delivered"
-      );
-
-    const anyDelivered =
-      statuses.some(
-        (item) =>
-          item ===
-          "delivered"
-      );
-
-    const anyOutForDelivery =
-      statuses.some(
-        (item) =>
-          item ===
-          "out_for_delivery"
-      );
-
-    const anyPickedUp =
-      statuses.some(
-        (item) =>
-          item ===
-          "picked_up"
-      );
-
-    const allReadyForPickup =
-      statuses.length > 0 &&
-      statuses.every(
-        (item) =>
-          item ===
-          "ready_for_pickup"
-      );
-
-    const anyReadyForPickup =
-      statuses.some(
-        (item) =>
-          item ===
-          "ready_for_pickup"
-      );
-
-    const anyProcessing =
-      statuses.some(
-        (item) =>
-          item ===
-          "processing"
-      );
-
-    const anyConfirmed =
-      statuses.some(
-        (item) =>
-          item ===
-          "confirmed"
-      );
-
-    if (allDelivered) {
-      order.status =
-        "delivered";
-    } else if (
-      anyDelivered
-    ) {
-      order.status =
-        "partially_fulfilled";
-    } else if (
-      anyOutForDelivery
-    ) {
-      order.status =
-        "out_for_delivery";
-    } else if (
-      anyPickedUp
-    ) {
-      order.status =
-        "picked_up";
-    } else if (
-      allReadyForPickup
-    ) {
-      order.status =
-        "ready_for_pickup";
-    } else if (
-      anyReadyForPickup
-    ) {
-      order.status =
-        "partially_fulfilled";
-    } else if (
-      anyProcessing
-    ) {
-      order.status =
-        "processing";
-    } else if (
-      anyConfirmed
-    ) {
-      order.status =
-        "confirmed";
-    } else {
-      order.status =
-        "pending";
-    }
+    recalculateOrderStatus(
+      order
+    );
 
     await order.save();
 
-    if (
-      status ===
-      "ready_for_pickup"
-    ) {
-      await notifyAdminsReadyForPickup(
-        order,
-        fulfillment
-      );
-    }
-
-    return toSellerOrderView(
-      order,
-      sellerId,
-      normalizedEmail,
-      ownedProductIds
-    );
+    return order;
   };
+
+/* ============================================================
+   ADMIN - UPDATE SELLER DELIVERY
+============================================================ */
 
 const updateAdminFulfillment =
   async (
-    orderId: string,
-    sellerId: string,
-    status: any,
+    orderId:
+      string,
+
+    sellerId:
+      string,
+
+    status:
+      any,
 
     deliveryPartner?: {
       name?: string;
@@ -1942,7 +1441,9 @@ const updateAdminFulfillment =
         orderId
       );
 
-    if (!order) {
+    if (
+      !order
+    ) {
       throw new AppError(
         404,
         "Order not found"
@@ -1951,46 +1452,52 @@ const updateAdminFulfillment =
 
     const fulfillment =
       order.fulfillments.find(
-        (item) =>
+        (
+          item
+        ) =>
           item.sellerId ===
           sellerId
       );
 
-    if (!fulfillment) {
+    if (
+      !fulfillment
+    ) {
       throw new AppError(
         404,
         "Seller fulfillment not found"
       );
     }
 
-    const currentStatus =
-      fulfillment.status;
+    const allowedNextStatuses:
+      Record<
+        string,
+        string[]
+      > = {
+        ready_for_pickup:
+          [
+            "picked_up",
+          ],
 
-    const allowedNextStatuses: Record<
-      string,
-      string[]
-    > = {
-      ready_for_pickup: [
-        "picked_up",
-      ],
+        picked_up: [
+          "out_for_delivery",
+        ],
 
-      picked_up: [
-        "out_for_delivery",
-      ],
-
-      out_for_delivery: [
-        "delivered",
-      ],
-    };
+        out_for_delivery:
+          [
+            "delivered",
+          ],
+      };
 
     if (
       !allowedNextStatuses[
-        currentStatus
-      ]?.includes(status)
+        fulfillment.status
+      ]?.includes(
+        status
+      )
     ) {
       throw new AppError(
         400,
-        `Invalid delivery status transition: ${currentStatus} → ${status}`
+        `Invalid delivery status transition: ${fulfillment.status} → ${status}`
       );
     }
 
@@ -2001,224 +1508,35 @@ const updateAdminFulfillment =
       deliveryPartner
     ) {
       fulfillment.deliveryPartner =
-        deliveryPartner;
+        {
+          ...(deliveryPartner.name
+            ? {
+                name:
+                  deliveryPartner.name,
+              }
+            : {}),
+
+          ...(deliveryPartner.phone
+            ? {
+                phone:
+                  deliveryPartner.phone,
+              }
+            : {}),
+        };
     }
 
-    const statuses =
-      order.fulfillments.map(
-        (item) =>
-          item.status
-      );
-
-    const allDelivered =
-      statuses.length > 0 &&
-      statuses.every(
-        (item) =>
-          item ===
-          "delivered"
-      );
-
-    const anyDelivered =
-      statuses.some(
-        (item) =>
-          item ===
-          "delivered"
-      );
-
-    const anyOutForDelivery =
-      statuses.some(
-        (item) =>
-          item ===
-          "out_for_delivery"
-      );
-
-    const anyPickedUp =
-      statuses.some(
-        (item) =>
-          item ===
-          "picked_up"
-      );
-
-    const allReadyForPickup =
-      statuses.length > 0 &&
-      statuses.every(
-        (item) =>
-          item ===
-          "ready_for_pickup"
-      );
-
-    const anyReadyForPickup =
-      statuses.some(
-        (item) =>
-          item ===
-          "ready_for_pickup"
-      );
-
-    const anyProcessing =
-      statuses.some(
-        (item) =>
-          item ===
-          "processing"
-      );
-
-    const anyConfirmed =
-      statuses.some(
-        (item) =>
-          item ===
-          "confirmed"
-      );
-
-    if (allDelivered) {
-      order.status =
-        "delivered";
-    } else if (
-      anyDelivered
-    ) {
-      order.status =
-        "partially_fulfilled";
-    } else if (
-      anyOutForDelivery
-    ) {
-      order.status =
-        "out_for_delivery";
-    } else if (
-      anyPickedUp
-    ) {
-      order.status =
-        "picked_up";
-    } else if (
-      allReadyForPickup
-    ) {
-      order.status =
-        "ready_for_pickup";
-    } else if (
-      anyReadyForPickup
-    ) {
-      order.status =
-        "partially_fulfilled";
-    } else if (
-      anyProcessing
-    ) {
-      order.status =
-        "processing";
-    } else if (
-      anyConfirmed
-    ) {
-      order.status =
-        "confirmed";
-    } else {
-      order.status =
-        "pending";
-    }
+    recalculateOrderStatus(
+      order
+    );
 
     await order.save();
 
-    if (
-      status ===
-        "picked_up" &&
-      fulfillment.sellerId
-    ) {
-      await NotificationService.createNotification(
-        {
-          userId:
-            String(
-              fulfillment.sellerId
-            ),
-
-          type:
-            "MARKETPLACE_PICKED_UP",
-
-          title:
-            "Marketplace order collected",
-
-          message: `AgriNova collected your items for order ${order.orderNumber}.`,
-
-          href:
-            "/seller-orders",
-
-          data: {
-            orderId:
-              String(
-                order._id
-              ),
-
-            orderNumber:
-              order.orderNumber,
-          },
-        }
-      );
-    }
-
-    if (
-      status ===
-      "out_for_delivery"
-    ) {
-      await NotificationService.createNotification(
-        {
-          userId:
-            String(
-              order.customerId
-            ),
-
-          type:
-            "MARKETPLACE_OUT_FOR_DELIVERY",
-
-          title:
-            "Order is out for delivery",
-
-          message: `Order ${order.orderNumber} is on the way to you.`,
-
-          href: `/orders/${order._id}`,
-
-          data: {
-            orderId:
-              String(
-                order._id
-              ),
-
-            orderNumber:
-              order.orderNumber,
-          },
-        }
-      );
-    }
-
-    if (
-      status ===
-      "delivered"
-    ) {
-      await NotificationService.createNotification(
-        {
-          userId:
-            String(
-              order.customerId
-            ),
-
-          type:
-            "MARKETPLACE_DELIVERED",
-
-          title:
-            "Order delivered",
-
-          message: `Order ${order.orderNumber} was marked delivered.`,
-
-          href: `/orders/${order._id}`,
-
-          data: {
-            orderId:
-              String(
-                order._id
-              ),
-
-            orderNumber:
-              order.orderNumber,
-          },
-        }
-      );
-    }
-
     return order;
   };
+
+/* ============================================================
+   2C - ADMIN GET ALL ORDERS + PAGINATION/FILTERING
+============================================================ */
 
 const getAllOrdersForAdmin =
   async (
@@ -2231,7 +1549,8 @@ const getAllOrdersForAdmin =
       Math.max(
         Number(
           query.page
-        ) || 1,
+        ) ||
+          1,
         1
       );
 
@@ -2240,135 +1559,201 @@ const getAllOrdersForAdmin =
         Math.max(
           Number(
             query.limit
-          ) || 20,
+          ) ||
+            20,
           1
         ),
-        50
+        100
       );
 
     const skip =
-      (page - 1) *
+      (
+        page -
+        1
+      ) *
       limit;
 
-    const filter: Record<
-      string,
-      any
-    > = {};
+    const filter:
+      Record<
+        string,
+        any
+      > = {};
+
+    /* ========================================================
+       ORDER STATUS FILTER
+    ======================================================== */
 
     if (
-      query.fulfillmentStatus ===
-      "active"
+      typeof query.status ===
+        "string" &&
+      query.status.trim()
     ) {
-      filter[
-        "fulfillments.status"
-      ] = {
-        $in: [
-          "ready_for_pickup",
-          "picked_up",
-          "out_for_delivery",
-        ],
-      };
-
-      filter.$or = [
-        {
-          paymentMethod:
-            "cod",
-        },
-
-        {
-          paymentStatus:
-            "paid",
-        },
-      ];
-    }
-
-    if (query.status) {
       filter.status =
-        String(
-          query.status
-        );
+        query.status
+          .trim();
     }
 
-    if (query.search) {
-      const escaped =
-        String(
-          query.search
-        ).replace(
-          /[.*+?^${}()|[\]\\]/g,
-          "\\$&"
-        );
+    /* ========================================================
+       PAYMENT STATUS FILTER
+    ======================================================== */
 
-      const rx =
+    if (
+      typeof query.paymentStatus ===
+        "string" &&
+      query.paymentStatus
+        .trim()
+    ) {
+      filter.paymentStatus =
+        query.paymentStatus
+          .trim();
+    }
+
+    /* ========================================================
+       PAYMENT METHOD FILTER
+    ======================================================== */
+
+    if (
+      typeof query.paymentMethod ===
+        "string" &&
+      query.paymentMethod
+        .trim()
+    ) {
+      filter.paymentMethod =
+        query.paymentMethod
+          .trim();
+    }
+
+    /* ========================================================
+       FULFILLMENT FILTER
+    ======================================================== */
+
+    if (
+      typeof query.fulfillmentStatus ===
+        "string" &&
+      query.fulfillmentStatus
+        .trim()
+    ) {
+      if (
+        query.fulfillmentStatus ===
+        "active"
+      ) {
+        filter[
+          "fulfillments.status"
+        ] = {
+          $in: [
+            "ready_for_pickup",
+            "picked_up",
+            "out_for_delivery",
+          ],
+        };
+      } else {
+        filter[
+          "fulfillments.status"
+        ] =
+          query.fulfillmentStatus;
+      }
+    }
+
+    /* ========================================================
+       SEARCH
+    ======================================================== */
+
+    if (
+      typeof query.search ===
+        "string" &&
+      query.search.trim()
+    ) {
+      const escaped =
+        query.search
+          .trim()
+          .replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&"
+          );
+
+      const regex =
         new RegExp(
           escaped,
           "i"
         );
 
-      const searchClause =
+      filter.$or = [
         {
-          $or: [
-            {
-              orderNumber:
-                rx,
-            },
+          orderNumber:
+            regex,
+        },
 
-            {
-              customerName:
-                rx,
-            },
+        {
+          customerName:
+            regex,
+        },
 
-            {
-              "fulfillments.sellerName":
-                rx,
-            },
-          ],
-        };
+        {
+          customerEmail:
+            regex,
+        },
 
-      if (filter.$or) {
-        filter.$and = [
-          {
-            $or:
-              filter.$or,
-          },
+        {
+          "shippingAddress.phone":
+            regex,
+        },
 
-          searchClause,
-        ];
+        {
+          "fulfillments.sellerName":
+            regex,
+        },
 
-        delete filter.$or;
-      } else {
-        Object.assign(
-          filter,
-          searchClause
-        );
-      }
+        {
+          "fulfillments.sellerEmail":
+            regex,
+        },
+
+        {
+          "items.title":
+            regex,
+        },
+      ];
     }
+
+    /* ========================================================
+       DATA
+    ======================================================== */
 
     const [
       data,
       total,
     ] =
-      await Promise.all([
-        Order.find(
-          filter
-        )
-          .sort({
-            createdAt: -1,
-          })
-          .skip(skip)
-          .limit(limit)
-          .lean(),
+      await Promise.all(
+        [
+          Order.find(
+            filter
+          )
+            .sort(
+              {
+                createdAt:
+                  -1,
+              }
+            )
+            .skip(
+              skip
+            )
+            .limit(
+              limit
+            )
+            .lean(),
 
-        Order.countDocuments(
-          filter
-        ),
-      ]);
+          Order.countDocuments(
+            filter
+          ),
+        ]
+      );
 
     return {
-      data,
-
       meta: {
         page,
+
         limit,
+
         total,
 
         totalPages:
@@ -2380,13 +1765,22 @@ const getAllOrdersForAdmin =
             1
           ),
       },
+
+      data,
     };
   };
 
+/* ============================================================
+   ADMIN - UPDATE MASTER ORDER STATUS
+============================================================ */
+
 const updateOrderStatusByAdmin =
   async (
-    orderId: string,
-    status: any
+    orderId:
+      string,
+
+    status:
+      any
   ) => {
     if (
       !isValidObjectId(
@@ -2400,39 +1794,62 @@ const updateOrderStatusByAdmin =
     }
 
     const order =
-      await Order.findByIdAndUpdate(
-        orderId,
-
-        {
-          $set: {
-            status,
-          },
-        },
-
-        {
-          new: true,
-
-          runValidators:
-            true,
-        }
+      await Order.findById(
+        orderId
       );
 
-    if (!order) {
+    if (
+      !order
+    ) {
       throw new AppError(
         404,
         "Order not found"
       );
     }
 
+    /**
+     * Prevent reopening terminal orders accidentally.
+     */
+    if (
+      order.status ===
+        "delivered" &&
+      status !==
+        "delivered"
+    ) {
+      throw new AppError(
+        400,
+        "Delivered order status cannot be changed"
+      );
+    }
+
+    order.status =
+      status;
+
+    await order.save();
+
     return order;
   };
 
+/* ============================================================
+   EXPORT
+============================================================ */
+
 export const OrderService =
   {
+    /**
+     * Required by current order.controller.ts
+     */
     getCheckoutConfig,
 
     createOrderInDB,
 
+    /**
+     * Returns:
+     * {
+     *   meta,
+     *   data
+     * }
+     */
     getMyOrdersFromDB,
 
     getMyOrderByIdFromDB,

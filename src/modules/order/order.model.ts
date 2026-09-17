@@ -17,6 +17,10 @@ import {
   PAYMENT_STATUSES,
 } from "./order.constant";
 
+/* ============================================================
+   ORDER ITEM
+============================================================ */
+
 const orderItemSchema =
   new Schema<IOrderItem>(
     {
@@ -79,6 +83,10 @@ const orderItemSchema =
     }
   );
 
+/* ============================================================
+   SELLER FULFILLMENT
+============================================================ */
+
 const fulfillmentSchema =
   new Schema<IOrderFulfillment>(
     {
@@ -100,13 +108,28 @@ const fulfillmentSchema =
       },
 
       items: {
-        type: [orderItemSchema],
+        type: [
+          orderItemSchema,
+        ],
         required: true,
       },
 
       subtotal: {
         type: Number,
         required: true,
+        min: 0,
+      },
+
+      /**
+       * ========================================================
+       * DELIVERY CHARGE FOR THIS SELLER
+       * ========================================================
+       *
+       * Default 0 keeps old orders compatible.
+       */
+      deliveryFee: {
+        type: Number,
+        default: 0,
         min: 0,
       },
 
@@ -130,8 +153,13 @@ const fulfillmentSchema =
 
       status: {
         type: String,
-        enum: [...FULFILLMENT_STATUSES],
-        default: "pending",
+
+        enum: [
+          ...FULFILLMENT_STATUSES,
+        ],
+
+        default:
+          "pending",
       },
 
       pickupAddress: {
@@ -139,14 +167,23 @@ const fulfillmentSchema =
       },
 
       deliveryPartner: {
-        name: String,
-        phone: String,
+        name: {
+          type: String,
+        },
+
+        phone: {
+          type: String,
+        },
       },
     },
     {
       _id: false,
     }
   );
+
+/* ============================================================
+   SHIPPING ADDRESS
+============================================================ */
 
 const shippingAddressSchema =
   new Schema<IShippingAddress>(
@@ -189,9 +226,18 @@ const shippingAddressSchema =
     }
   );
 
+/* ============================================================
+   ORDER
+============================================================ */
+
 const orderSchema =
   new Schema<IOrder>(
     {
+      idempotencyKey: {
+        type: String,
+        trim: true,
+      },
+
       orderNumber: {
         type: String,
         required: true,
@@ -218,17 +264,23 @@ const orderSchema =
       },
 
       items: {
-        type: [orderItemSchema],
+        type: [
+          orderItemSchema,
+        ],
         required: true,
       },
 
       fulfillments: {
-        type: [fulfillmentSchema],
+        type: [
+          fulfillmentSchema,
+        ],
         required: true,
       },
 
       shippingAddress: {
-        type: shippingAddressSchema,
+        type:
+          shippingAddressSchema,
+
         required: true,
       },
 
@@ -238,6 +290,9 @@ const orderSchema =
         min: 0,
       },
 
+      /**
+       * Total delivery charges for all sellers.
+       */
       deliveryFee: {
         type: Number,
         required: true,
@@ -264,21 +319,37 @@ const orderSchema =
 
       status: {
         type: String,
-        enum: [...ORDER_STATUSES],
-        default: "pending",
+
+        enum: [
+          ...ORDER_STATUSES,
+        ],
+
+        default:
+          "pending",
+
         index: true,
       },
 
       paymentMethod: {
         type: String,
-        enum: [...PAYMENT_METHODS],
+
+        enum: [
+          ...PAYMENT_METHODS,
+        ],
+
         required: true,
       },
 
       paymentStatus: {
         type: String,
-        enum: [...PAYMENT_STATUSES],
-        default: "pending",
+
+        enum: [
+          ...PAYMENT_STATUSES,
+        ],
+
+        default:
+          "pending",
+
         index: true,
       },
 
@@ -301,15 +372,47 @@ const orderSchema =
     }
   );
 
+/* ============================================================
+   INDEXES
+============================================================ */
+
 orderSchema.index({
   customerId: 1,
   createdAt: -1,
 });
 
 orderSchema.index({
-  "fulfillments.sellerId": 1,
-  createdAt: -1,
+  "fulfillments.sellerId":
+    1,
+
+  createdAt:
+    -1,
 });
+
+/**
+ * Prevent duplicate checkout.
+ */
+orderSchema.index(
+  {
+    customerId:
+      1,
+
+    idempotencyKey:
+      1,
+  },
+  {
+    unique:
+      true,
+
+    partialFilterExpression:
+      {
+        idempotencyKey: {
+          $type:
+            "string",
+        },
+      },
+  }
+);
 
 export const Order =
   model<IOrder>(

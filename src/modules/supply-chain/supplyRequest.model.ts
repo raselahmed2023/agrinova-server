@@ -23,6 +23,16 @@ const supplyRequestSchema =
         index: true,
       },
 
+      farmerId: {
+        type: String,
+        required: [
+          true,
+          "Farmer ID is required",
+        ],
+        trim: true,
+        index: true,
+      },
+
       farmerName: {
         type: String,
         required: [
@@ -45,6 +55,7 @@ const supplyRequestSchema =
         type: String,
         trim: true,
         lowercase: true,
+        index: true,
       },
 
       productName: {
@@ -160,6 +171,17 @@ const supplyRequestSchema =
       timestamps: true,
     }
   );
+
+supplyRequestSchema.index({
+  farmerId: 1,
+  createdAt: -1,
+});
+
+supplyRequestSchema.index({
+  farmerId: 1,
+  status: 1,
+  createdAt: -1,
+});
 
 supplyRequestSchema.index({
   status: 1,

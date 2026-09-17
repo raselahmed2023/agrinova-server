@@ -29,66 +29,6 @@ const statusSchema =
     SUPPLY_STATUSES
   );
 
-/*
- * Accept:
- *
- * https://i.ibb.co/...
- *
- * OR your Next.js local upload fallback:
- *
- * /uploads/filename.jpg
- */
-const imageUrlSchema =
-  z
-    .string()
-    .trim()
-    .refine(
-      (value) => {
-        if (
-          /^\/uploads\/[A-Za-z0-9._-]+$/.test(
-            value
-          )
-        ) {
-          return true;
-        }
-
-        try {
-          const url =
-            new URL(value);
-
-          return (
-            url.protocol ===
-              "http:" ||
-            url.protocol ===
-              "https:"
-          );
-        } catch {
-          return false;
-        }
-      },
-      {
-        message:
-          "Image must be a valid HTTP(S) URL or /uploads/ path",
-      }
-    );
-
-const positiveIntegerString =
-  z
-    .string()
-    .regex(
-      /^\d+$/,
-      "Must be a positive integer"
-    )
-    .refine(
-      (value) =>
-        Number(value) >
-        0,
-      {
-        message:
-          "Must be a positive integer",
-      }
-    );
-
 const createSupplyRequestSchema =
   z.object({
     body: z.object({
@@ -111,12 +51,6 @@ const createSupplyRequestSchema =
           /^01[3-9]\d{8}$/,
           "Invalid Bangladeshi phone number"
         ),
-
-      farmerEmail: z
-        .string()
-        .trim()
-        .email()
-        .optional(),
 
       productName: z
         .string({
@@ -178,7 +112,9 @@ const createSupplyRequestSchema =
 
       images: z
         .array(
-          imageUrlSchema
+          z
+            .string()
+            .url()
         )
         .max(5)
         .optional(),
@@ -236,22 +172,43 @@ const adminQuerySchema =
     query: z
       .object({
         status:
-          statusSchema.optional(),
+          statusSchema
+            .optional(),
 
         branch:
-          branchSchema.optional(),
+          branchSchema
+            .optional(),
 
         search: z
           .string()
-          .trim()
-          .max(200)
           .optional(),
 
-        page:
-          positiveIntegerString.optional(),
+        page: z
+          .string()
+          .optional(),
 
-        limit:
-          positiveIntegerString.optional(),
+        limit: z
+          .string()
+          .optional(),
+      })
+      .optional(),
+  });
+
+const farmerQuerySchema =
+  z.object({
+    query: z
+      .object({
+        status:
+          statusSchema
+            .optional(),
+
+        page: z
+          .string()
+          .optional(),
+
+        limit: z
+          .string()
+          .optional(),
       })
       .optional(),
   });
@@ -272,10 +229,8 @@ const trackingSchema =
 export const SupplyRequestValidation =
   {
     createSupplyRequestSchema,
-
     updateStatusSchema,
-
     adminQuerySchema,
-
+    farmerQuerySchema,
     trackingSchema,
   };

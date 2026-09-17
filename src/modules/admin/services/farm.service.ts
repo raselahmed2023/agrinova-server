@@ -1,35 +1,231 @@
 import mongoose from "mongoose";
 
-const getMainDb = () => mongoose.connection.useDb("agrinova", { useCache: true });
+import {
+  Farm,
+} from "../../../app/modules/farm/farm.model";
 
 export const FarmService = {
-  async getAdminFarmsFromDB(query: Record<string, unknown>) {
-    const farmCollection = getMainDb().collection("farms");
-    const page = Number(query.page) || 1;
-    const limit = Math.min(Number(query.limit) || 10, 50);
-    const skip = (page - 1) * limit;
 
-    const filter: Record<string, unknown> = {};
-    if (query.district && query.district !== "") filter.district = { $regex: query.district, $options: "i" };
-    if (query.search) {
+  async getAdminFarmsFromDB(
+    query:
+      Record<
+        string,
+        unknown
+      >
+  ) {
+    const page =
+      Math.max(
+        Number(
+          query.page
+        ) || 1,
+        1
+      );
+
+    const limit =
+      Math.min(
+        Math.max(
+          Number(
+            query.limit
+          ) || 20,
+          1
+        ),
+        100
+      );
+
+    const skip =
+      (
+        page - 1
+      ) *
+      limit;
+
+    const filter:
+      Record<
+        string,
+        unknown
+      > = {};
+
+    /**
+     * District filter
+     */
+    if (
+      typeof query.district ===
+        "string" &&
+      query.district.trim()
+    ) {
+      filter.district = {
+        $regex:
+          query.district.trim(),
+
+        $options:
+          "i",
+      };
+    }
+
+    /**
+     * Farm status filter
+     */
+    if (
+      typeof query.status ===
+        "string" &&
+      query.status.trim() &&
+      query.status !==
+        "All Statuses"
+    ) {
+      filter.status =
+        query.status.trim();
+    }
+
+
+    if (
+      typeof query.farmType ===
+        "string" &&
+      query.farmType.trim()
+    ) {
+      filter.farmType =
+        query.farmType.trim();
+    }
+
+
+    if (
+      typeof query.search ===
+        "string" &&
+      query.search.trim()
+    ) {
+      const escaped =
+        query.search
+          .trim()
+          .replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&"
+          );
+
       filter.$or = [
-        { name: { $regex: query.search, $options: "i" } },
-        { soilType: { $regex: query.search, $options: "i" } },
+        {
+          name: {
+            $regex:
+              escaped,
+
+            $options:
+              "i",
+          },
+        },
+
+        {
+          farmerEmail: {
+            $regex:
+              escaped,
+
+            $options:
+              "i",
+          },
+        },
+
+        {
+          division: {
+            $regex:
+              escaped,
+
+            $options:
+              "i",
+          },
+        },
+
+        {
+          district: {
+            $regex:
+              escaped,
+
+            $options:
+              "i",
+          },
+        },
+
+        {
+          upazila: {
+            $regex:
+              escaped,
+
+            $options:
+              "i",
+          },
+        },
+
+        {
+          soilType: {
+            $regex:
+              escaped,
+
+            $options:
+              "i",
+          },
+        },
       ];
     }
 
-    const data = await farmCollection.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 }).toArray();
-    const total = await farmCollection.countDocuments(filter);
+    const [
+      data,
+      total,
+    ] =
+      await Promise.all([
+        Farm.find(
+          filter
+        )
+          .sort({
+            createdAt:
+              -1,
+          })
+          .skip(
+            skip
+          )
+          .limit(
+            limit
+          )
+          .lean(),
+
+        Farm.countDocuments(
+          filter
+        ),
+      ]);
 
     return {
       data,
-      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+
+      meta: {
+        page,
+
+        limit,
+
+        total,
+
+        totalPages:
+          Math.max(
+            Math.ceil(
+              total /
+                limit
+            ),
+            1
+          ),
+      },
     };
   },
 
-  async getAdminFarmByIdFromDB(farmId: string) {
-    const farmCollection = getMainDb().collection("farms");
-    if (!mongoose.Types.ObjectId.isValid(farmId)) return null;
-    return await farmCollection.findOne({ _id: new mongoose.Types.ObjectId(farmId) });
-  }
+
+  async getAdminFarmByIdFromDB(
+    farmId:
+      string
+  ) {
+    if (
+      !mongoose.Types
+        .ObjectId
+        .isValid(
+          farmId
+        )
+    ) {
+      return null;
+    }
+
+    return Farm.findById(
+      farmId
+    ).lean();
+  },
 };

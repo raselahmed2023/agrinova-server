@@ -17,12 +17,20 @@ import {
 const router =
   Router();
 
-/*
-  PUBLIC SUBMISSION
-*/
+/**
+ * ============================================================
+ * FARMER ROUTES
+ * ============================================================
+ */
 
 router.post(
   "/requests",
+
+  authenticate,
+
+  authorize(
+    "FARMER"
+  ),
 
   validateRequest(
     SupplyRequestValidation
@@ -33,12 +41,32 @@ router.post(
     .createSupplyRequest
 );
 
-/*
-  PUBLIC TRACKING
-*/
+router.get(
+  "/requests/mine",
+
+  authenticate,
+
+  authorize(
+    "FARMER"
+  ),
+
+  validateRequest(
+    SupplyRequestValidation
+      .farmerQuerySchema
+  ),
+
+  SupplyRequestController
+    .getMySupplyRequests
+);
 
 router.get(
   "/requests/track/:trackingCode",
+
+  authenticate,
+
+  authorize(
+    "FARMER"
+  ),
 
   validateRequest(
     SupplyRequestValidation
@@ -49,9 +77,11 @@ router.get(
     .trackSupplyRequest
 );
 
-/*
-  ADMIN
-*/
+/**
+ * ============================================================
+ * ADMIN ROUTES
+ * ============================================================
+ */
 
 router.get(
   "/requests",
@@ -69,19 +99,6 @@ router.get(
 
   SupplyRequestController
     .getAllSupplyRequests
-);
-
-router.get(
-  "/requests/stats",
-
-  authenticate,
-
-  authorize(
-    "ADMIN"
-  ),
-
-  SupplyRequestController
-    .getSupplyRequestStats
 );
 
 router.get(

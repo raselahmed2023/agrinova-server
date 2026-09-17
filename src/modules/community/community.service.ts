@@ -667,6 +667,7 @@ const deleteOwnPostFromDB =
     };
   };
 
+
 /* ============================================================
    LIKE
 ============================================================ */
@@ -674,7 +675,7 @@ const deleteOwnPostFromDB =
 const toggleLikeInDB =
   async (
     postId: string,
-    farmerId: string
+    user: CommunityUser
   ) => {
     requireObjectId(
       postId,
@@ -682,9 +683,19 @@ const toggleLikeInDB =
     );
 
     requireObjectId(
-      farmerId,
+      user.id,
       "farmer id"
     );
+
+    if (
+      user.role !==
+      "FARMER"
+    ) {
+      throw new AppError(
+        403,
+        "Only farmers can like Community posts"
+      );
+    }
 
     const post =
       await CommunityPost.findOne({
@@ -711,7 +722,7 @@ const toggleLikeInDB =
         ) =>
           String(id) ===
           String(
-            farmerId
+            user.id
           )
       );
 
@@ -723,25 +734,82 @@ const toggleLikeInDB =
           ) =>
             String(id) !==
             String(
-              farmerId
+              user.id
             )
         ) as typeof post.likes;
     } else {
       post.likes.push(
         new Types.ObjectId(
-          farmerId
+          user.id
         ) as never
       );
     }
 
     await post.save();
 
+    /*
+      Notify only when a like is ADDED.
+      Removing a like must not create a notification.
+      Never notify a farmer about liking their own post.
+    */
+    if (
+      !exists &&
+      String(
+        post.authorId
+      ) !==
+        String(
+          user.id
+        )
+    ) {
+      try {
+        await NotificationService.createNotification(
+          {
+            userId:
+              String(
+                post.authorId
+              ),
+
+            type:
+              "COMMUNITY_POST_LIKED",
+
+            title:
+              "New like",
+
+            message:
+              `${user.name || "A farmer"} liked your Community post.`,
+
+            href:
+              "/community",
+
+            data: {
+              postId:
+                String(
+                  post._id
+                ),
+
+              actorId:
+                String(
+                  user.id
+                ),
+            },
+          }
+        );
+      } catch (
+        error
+      ) {
+        console.error(
+          "Community like notification failed:",
+          error
+        );
+      }
+    }
+
     const hydrated =
       await hydratePosts(
         [
           post.toObject(),
         ],
-        farmerId
+        user.id
       );
 
     return hydrated[0];
@@ -750,6 +818,7 @@ const toggleLikeInDB =
 /* ============================================================
    COMMENT
 ============================================================ */
+
 
 const addCommentInDB =
   async (
@@ -833,6 +902,62 @@ const addCommentInDB =
           1
       ];
 
+    if (
+      String(
+        post.authorId
+      ) !==
+        String(
+          user.id
+        )
+    ) {
+      try {
+        await NotificationService.createNotification(
+          {
+            userId:
+              String(
+                post.authorId
+              ),
+
+            type:
+              "COMMUNITY_COMMENT_ADDED",
+
+            title:
+              "New comment",
+
+            message:
+              `${authUser?.name || user.name || "A farmer"} commented on your Community post.`,
+
+            href:
+              "/community",
+
+            data: {
+              postId:
+                String(
+                  post._id
+                ),
+
+              commentId:
+                String(
+                  newComment._id
+                ),
+
+              actorId:
+                String(
+                  user.id
+                ),
+            },
+          }
+        );
+      } catch (
+        error
+      ) {
+        console.error(
+          "Community comment notification failed:",
+          error
+        );
+      }
+    }
+
     return {
       ...(
         newComment.toObject
@@ -850,6 +975,7 @@ const addCommentInDB =
 /* ============================================================
    REPLY
 ============================================================ */
+
 
 const addReplyInDB =
   async (
@@ -958,6 +1084,100 @@ const addReplyInDB =
           1
       ];
 
+    /*
+      Notify the comment owner and, when different, the post owner.
+      Do not notify the person who wrote the reply.
+    */
+    const recipientIds =
+      [
+        String(
+          comment.authorId
+        ),
+        String(
+          post.authorId
+        ),
+      ]
+        .filter(
+          (
+            id
+          ) =>
+            id &&
+            id !==
+              String(
+                user.id
+              )
+        )
+        .filter(
+          (
+            id,
+            index,
+            values
+          ) =>
+            values.indexOf(
+              id
+            ) ===
+            index
+        );
+
+    if (
+      recipientIds.length >
+      0
+    ) {
+      try {
+        await NotificationService.createManyNotifications(
+          recipientIds.map(
+            (
+              recipientId
+            ) => ({
+              userId:
+                recipientId,
+
+              type:
+                "COMMUNITY_REPLY_ADDED",
+
+              title:
+                "New reply",
+
+              message:
+                `${authUser?.name || user.name || "A farmer"} replied in a Community discussion.`,
+
+              href:
+                "/community",
+
+              data: {
+                postId:
+                  String(
+                    post._id
+                  ),
+
+                commentId:
+                  String(
+                    comment._id
+                  ),
+
+                replyId:
+                  String(
+                    reply._id
+                  ),
+
+                actorId:
+                  String(
+                    user.id
+                  ),
+              },
+            })
+          )
+        );
+      } catch (
+        error
+      ) {
+        console.error(
+          "Community reply notification failed:",
+          error
+        );
+      }
+    }
+
     return {
       ...(
         reply.toObject
@@ -968,6 +1188,277 @@ const addReplyInDB =
       authorAvatar:
         avatarFromUser(
           authUser
+        ),
+    };
+  };
+
+/* ============================================================
+   DELETE COMMENT
+
+   A comment may be deleted by:
+   - the farmer who wrote it
+   - the owner of the post
+============================================================ */
+
+const deleteCommentInDB =
+  async (
+    postId: string,
+    commentId: string,
+    farmerId: string
+  ) => {
+    requireObjectId(
+      postId,
+      "post id"
+    );
+
+    requireObjectId(
+      commentId,
+      "comment id"
+    );
+
+    requireObjectId(
+      farmerId,
+      "farmer id"
+    );
+
+    const post =
+      await CommunityPost.findOne({
+        _id:
+          new Types.ObjectId(
+            postId
+          ),
+
+        status:
+          "ACTIVE",
+      });
+
+    if (!post) {
+      throw new AppError(
+        404,
+        "Community post not found"
+      );
+    }
+
+    const commentIndex =
+      post.comments.findIndex(
+        (
+          item:
+            CommunityCommentLike & {
+              authorId?: unknown;
+            }
+        ) =>
+          String(
+            item._id
+          ) ===
+          String(
+            commentId
+          )
+      );
+
+    if (
+      commentIndex <
+      0
+    ) {
+      throw new AppError(
+        404,
+        "Comment not found"
+      );
+    }
+
+    const comment =
+      post.comments[
+        commentIndex
+      ] as any;
+
+    const isCommentOwner =
+      String(
+        comment.authorId
+      ) ===
+      String(
+        farmerId
+      );
+
+    const isPostOwner =
+      String(
+        post.authorId
+      ) ===
+      String(
+        farmerId
+      );
+
+    if (
+      !isCommentOwner &&
+      !isPostOwner
+    ) {
+      throw new AppError(
+        403,
+        "You can only delete your own comments or comments on your own post"
+      );
+    }
+
+    post.comments.splice(
+      commentIndex,
+      1
+    );
+
+    await post.save();
+
+    return {
+      deleted:
+        true,
+
+      commentId:
+        String(
+          commentId
+        ),
+    };
+  };
+
+/* ============================================================
+   DELETE REPLY
+
+   A reply may be deleted by:
+   - the farmer who wrote it
+   - the owner of the parent comment
+   - the owner of the post
+============================================================ */
+
+const deleteReplyInDB =
+  async (
+    postId: string,
+    commentId: string,
+    replyId: string,
+    farmerId: string
+  ) => {
+    requireObjectId(
+      postId,
+      "post id"
+    );
+
+    requireObjectId(
+      commentId,
+      "comment id"
+    );
+
+    requireObjectId(
+      replyId,
+      "reply id"
+    );
+
+    requireObjectId(
+      farmerId,
+      "farmer id"
+    );
+
+    const post =
+      await CommunityPost.findOne({
+        _id:
+          new Types.ObjectId(
+            postId
+          ),
+
+        status:
+          "ACTIVE",
+      });
+
+    if (!post) {
+      throw new AppError(
+        404,
+        "Community post not found"
+      );
+    }
+
+    const comment =
+      post.comments.find(
+        (
+          item:
+            CommunityCommentLike
+        ) =>
+          String(
+            item._id
+          ) ===
+          String(
+            commentId
+          )
+      ) as any;
+
+    if (!comment) {
+      throw new AppError(
+        404,
+        "Comment not found"
+      );
+    }
+
+    const replyIndex =
+      comment.replies.findIndex(
+        (
+          reply:
+            any
+        ) =>
+          String(
+            reply._id
+          ) ===
+          String(
+            replyId
+          )
+      );
+
+    if (
+      replyIndex <
+      0
+    ) {
+      throw new AppError(
+        404,
+        "Reply not found"
+      );
+    }
+
+    const reply =
+      comment.replies[
+        replyIndex
+      ];
+
+    const allowed =
+      String(
+        reply.authorId
+      ) ===
+        String(
+          farmerId
+        ) ||
+      String(
+        comment.authorId
+      ) ===
+        String(
+          farmerId
+        ) ||
+      String(
+        post.authorId
+      ) ===
+        String(
+          farmerId
+        );
+
+    if (!allowed) {
+      throw new AppError(
+        403,
+        "You are not allowed to delete this reply"
+      );
+    }
+
+    comment.replies.splice(
+      replyIndex,
+      1
+    );
+
+    await post.save();
+
+    return {
+      deleted:
+        true,
+
+      replyId:
+        String(
+          replyId
         ),
     };
   };
@@ -1711,6 +2202,8 @@ export const CommunityService = {
   toggleLikeInDB,
   addCommentInDB,
   addReplyInDB,
+  deleteCommentInDB,
+  deleteReplyInDB,
 
   getFarmerProfileFromDB,
   getMyProfileFromDB,

@@ -1176,6 +1176,209 @@ const getMyOrderByIdFromDB =
   };
 
 /* ============================================================
+   SELLER ORDER VIEW HELPERS
+============================================================ */
+
+const normalizeSellerEmail = (
+  email: string
+) =>
+  String(email || "")
+    .trim()
+    .toLowerCase();
+
+const sellerMatchesFulfillment = (
+  fulfillment: any,
+  sellerId: string,
+  normalizedEmail: string
+) => {
+  const fulfillmentSellerId =
+    String(
+      fulfillment?.sellerId ||
+        ""
+    ).trim();
+
+  const fulfillmentSellerEmail =
+    normalizeSellerEmail(
+      fulfillment?.sellerEmail ||
+        ""
+    );
+
+  return Boolean(
+    fulfillmentSellerId ===
+      String(sellerId) ||
+      (
+        normalizedEmail &&
+        fulfillmentSellerEmail ===
+          normalizedEmail
+      )
+  );
+};
+
+/**
+ * Return only the portion of an order that belongs to the
+ * currently logged-in seller.
+ *
+ * This deliberately does NOT expose:
+ * - another seller's items
+ * - another seller's fulfillment
+ * - buyer email
+ * - buyer phone/address
+ * - master order financial totals belonging to all sellers
+ */
+const toSellerOrderView = (
+  order: any,
+  sellerId: string,
+  sellerEmail: string
+) => {
+  const normalizedEmail =
+    normalizeSellerEmail(
+      sellerEmail
+    );
+
+  const plain =
+    typeof order?.toObject ===
+    "function"
+      ? order.toObject()
+      : order;
+
+  const fulfillment =
+    Array.isArray(
+      plain?.fulfillments
+    )
+      ? plain.fulfillments.find(
+          (
+            item: any
+          ) =>
+            sellerMatchesFulfillment(
+              item,
+              sellerId,
+              normalizedEmail
+            )
+        )
+      : undefined;
+
+  if (!fulfillment) {
+    return null;
+  }
+
+  const ownItems =
+    Array.isArray(
+      fulfillment.items
+    )
+      ? fulfillment.items.filter(
+          (
+            item: any
+          ) => {
+            const itemSellerId =
+              String(
+                item?.sellerId ||
+                  ""
+              ).trim();
+
+            const itemSellerEmail =
+              normalizeSellerEmail(
+                item?.sellerEmail ||
+                  ""
+              );
+
+            return Boolean(
+              itemSellerId ===
+                String(sellerId) ||
+                (
+                  normalizedEmail &&
+                  itemSellerEmail ===
+                    normalizedEmail
+                )
+            );
+          }
+        )
+      : [];
+
+  return {
+    _id:
+      String(
+        plain._id
+      ),
+
+    orderNumber:
+      plain.orderNumber,
+
+    customerName:
+      plain.customerName,
+
+    deliveryDistrict:
+      plain.shippingAddress
+        ?.district ||
+      "",
+
+    paymentMethod:
+      plain.paymentMethod,
+
+    paymentStatus:
+      plain.paymentStatus,
+
+    status:
+      plain.status,
+
+    fulfillment: {
+      sellerId:
+        fulfillment.sellerId,
+
+      sellerName:
+        fulfillment.sellerName,
+
+      items:
+        ownItems,
+
+      subtotal:
+        Number(
+          fulfillment.subtotal ||
+            0
+        ),
+
+      deliveryFee:
+        Number(
+          fulfillment.deliveryFee ||
+            0
+        ),
+
+      commissionRate:
+        Number(
+          fulfillment.commissionRate ||
+            0
+        ),
+
+      commissionAmount:
+        Number(
+          fulfillment.commissionAmount ||
+            0
+        ),
+
+      sellerPayout:
+        Number(
+          fulfillment.sellerPayout ||
+            0
+        ),
+
+      status:
+        fulfillment.status,
+
+      pickupAddress:
+        fulfillment.pickupAddress,
+
+      deliveryPartner:
+        fulfillment.deliveryPartner,
+    },
+
+    createdAt:
+      plain.createdAt,
+
+    updatedAt:
+      plain.updatedAt,
+  };
+};
+
+/* ============================================================
    SELLER - GET OWN ORDERS
 ============================================================ */
 
@@ -1188,9 +1391,9 @@ const getSellerOrdersFromDB =
       string
   ) => {
     const normalizedEmail =
-      sellerEmail
-        .trim()
-        .toLowerCase();
+      normalizeSellerEmail(
+        sellerEmail
+      );
 
     const orders =
       await Order.find(
@@ -1217,27 +1420,29 @@ const getSellerOrdersFromDB =
         .lean();
 
     /**
-     * Never return other sellers'
-     * fulfillment data to this seller.
+     * IMPORTANT:
+     * A multi-seller order may contain products belonging to
+     * several farmers. Each seller gets only their own
+     * fulfillment object and items.
      */
-    return orders.map(
-      (
-        order
-      ) => ({
-        ...order,
-
-        fulfillments:
-          order.fulfillments.filter(
-            (
-              fulfillment
-            ) =>
-              fulfillment.sellerId ===
-                sellerId ||
-              fulfillment.sellerEmail ===
-                normalizedEmail
-          ),
-      })
-    );
+    return orders
+      .map(
+        (
+          order
+        ) =>
+          toSellerOrderView(
+            order,
+            sellerId,
+            normalizedEmail
+          )
+      )
+      .filter(
+        (
+          order
+        ) =>
+          order !==
+          null
+      );
   };
 
 /* ============================================================
@@ -1288,9 +1493,9 @@ const updateSellerFulfillment =
     }
 
     const normalizedEmail =
-      sellerEmail
-        .trim()
-        .toLowerCase();
+      normalizeSellerEmail(
+        sellerEmail
+      );
 
     const order =
       await Order.findOne(
@@ -1312,9 +1517,7 @@ const updateSellerFulfillment =
         }
       );
 
-    if (
-      !order
-    ) {
+    if (!order) {
       throw new AppError(
         404,
         "Order not found"
@@ -1326,15 +1529,14 @@ const updateSellerFulfillment =
         (
           item
         ) =>
-          item.sellerId ===
-            sellerId ||
-          item.sellerEmail ===
+          sellerMatchesFulfillment(
+            item,
+            sellerId,
             normalizedEmail
+          )
       );
 
-    if (
-      !fulfillment
-    ) {
+    if (!fulfillment) {
       throw new AppError(
         403,
         "You are not a seller in this order"
@@ -1384,7 +1586,21 @@ const updateSellerFulfillment =
 
     await order.save();
 
-    return order;
+    const sellerView =
+      toSellerOrderView(
+        order,
+        sellerId,
+        normalizedEmail
+      );
+
+    if (!sellerView) {
+      throw new AppError(
+        403,
+        "You are not a seller in this order"
+      );
+    }
+
+    return sellerView;
   };
 
 /* ============================================================

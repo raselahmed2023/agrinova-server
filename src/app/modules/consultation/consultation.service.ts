@@ -160,14 +160,41 @@ const getExpertAssignmentConditions = (
   ];
 };
 
+/**
+ * New Stripe consultations are visible to Experts only after payment.
+ * Existing legacy consultations (created before paymentStatus existed)
+ * remain visible so historical data is not hidden.
+ */
+const getPaidOrLegacyConsultationFilter =
+  (): QueryFilter<IConsultation> => {
+    return {
+      $or: [
+        {
+          paymentStatus: "PAID",
+        },
+        {
+          paymentStatus: {
+            $exists: false,
+          },
+        },
+      ],
+    };
+  };
+
 const getAssignedExpertFilter = (
   expertUser: UserContext
 ): QueryFilter<IConsultation> => {
   return {
-    $or:
-      getExpertAssignmentConditions(
-        expertUser
-      ),
+    $and: [
+      {
+        $or:
+          getExpertAssignmentConditions(
+            expertUser
+          ),
+      },
+
+      getPaidOrLegacyConsultationFilter(),
+    ],
   };
 };
 
@@ -264,6 +291,8 @@ const getPendingVisibleToExpertFilter = (
       {
         status: "PENDING",
       },
+
+      getPaidOrLegacyConsultationFilter(),
 
       {
         $or: [
@@ -369,6 +398,15 @@ const canExpertViewConsultation = (
   consultation: IConsultation,
   expertUser: UserContext
 ) => {
+  // Stripe-backed consultations are private from Experts until paid.
+  // Legacy records have no paymentStatus and remain accessible.
+  if (
+    consultation.paymentStatus &&
+    consultation.paymentStatus !== "PAID"
+  ) {
+    return false;
+  }
+
   if (
     isAssignedExpert(
       consultation,
@@ -423,6 +461,80 @@ const findConsultationById = async (
    DATE HELPERS
 ============================================================ */
 
+/**
+ * Convert either 24-hour time (18:00) or the 12-hour format used by
+ * ConsultantBookingModal (06:00 PM) into HH:mm.
+ */
+const normalizeConsultationTime = (
+  time?: string
+) => {
+  if (!time) {
+    return null;
+  }
+
+  const value =
+    time.trim();
+
+  const twentyFourHour =
+    value.match(
+      /^([01]?\d|2[0-3]):([0-5]\d)$/
+    );
+
+  if (twentyFourHour) {
+    const hour =
+      String(
+        Number(
+          twentyFourHour[1]
+        )
+      ).padStart(
+        2,
+        "0"
+      );
+
+    return `${hour}:${twentyFourHour[2]}`;
+  }
+
+  const twelveHour =
+    value.match(
+      /^(\d{1,2}):([0-5]\d)\s*(AM|PM)$/i
+    );
+
+  if (!twelveHour) {
+    return null;
+  }
+
+  let hour =
+    Number(
+      twelveHour[1]
+    );
+
+  const minute =
+    twelveHour[2];
+
+  const period =
+    twelveHour[3].toUpperCase();
+
+  if (
+    hour < 1 ||
+    hour > 12
+  ) {
+    return null;
+  }
+
+  if (period === "AM") {
+    if (hour === 12) {
+      hour = 0;
+    }
+  } else if (hour !== 12) {
+    hour += 12;
+  }
+
+  return `${String(hour).padStart(
+    2,
+    "0"
+  )}:${minute}`;
+};
+
 const createScheduledAt = (
   scheduledAt?: string | Date,
   scheduledDate?: string,
@@ -449,9 +561,18 @@ const createScheduledAt = (
     scheduledDate &&
     scheduledTime
   ) {
+    const normalizedTime =
+      normalizeConsultationTime(
+        scheduledTime
+      );
+
+    if (!normalizedTime) {
+      return null;
+    }
+
     const parsed =
       new Date(
-        `${scheduledDate}T${scheduledTime}:00`
+        `${scheduledDate}T${normalizedTime}:00`
       );
 
     if (
@@ -663,6 +784,16 @@ const assertExpertCanAct = (
     throw new AppError(
       403,
       "Expert access is required for this action."
+    );
+  }
+
+  if (
+    consultation.paymentStatus &&
+    consultation.paymentStatus !== "PAID"
+  ) {
+    throw new AppError(
+      409,
+      "This consultation is not available to the expert until payment is completed."
     );
   }
 
@@ -884,6 +1015,8 @@ const createConsultationIntoDB =
                   ],
                 },
               },
+
+              getPaidOrLegacyConsultationFilter(),
             ],
           }
         );
@@ -939,6 +1072,8 @@ const createConsultationIntoDB =
                   ],
                 },
               },
+
+              getPaidOrLegacyConsultationFilter(),
             ],
           }
         );
@@ -1021,6 +1156,8 @@ const createConsultationIntoDB =
                     ],
                   },
                 },
+
+                getPaidOrLegacyConsultationFilter(),
               ],
             }
           );
@@ -1048,6 +1185,7 @@ const createConsultationIntoDB =
           title: string;
           avatar?: string;
           phone?: string;
+          consultationFee: number;
         }
       | undefined;
 
@@ -1115,6 +1253,20 @@ const createConsultationIntoDB =
 
             phone:
               expertDoc.phone,
+
+            consultationFee:
+              Number.isFinite(
+                Number(
+                  expertDoc.consultationFee
+                )
+              )
+                ? Math.max(
+                    0,
+                    Number(
+                      expertDoc.consultationFee
+                    )
+                  )
+                : 500,
           };
         }
       } catch {
@@ -1158,6 +1310,41 @@ const createConsultationIntoDB =
     const finalExpertName =
       expertDetails?.name ||
       payload.expertName;
+
+    /* --------------------------------------------------------
+       Consultation payment
+
+       IMPORTANT: fee is resolved from the server-side Expert
+       record. It is never accepted from the Farmer request body.
+    -------------------------------------------------------- */
+
+    const resolvedConsultationFee =
+      Number(
+        expertDetails
+          ?.consultationFee ??
+          500
+      );
+
+    const consultationFee =
+      finalExpertId ||
+      finalExpertEmail
+        ? Number.isFinite(
+            resolvedConsultationFee
+          )
+          ? Math.max(
+              0,
+              resolvedConsultationFee
+            )
+          : 500
+        : 0;
+
+    const requiresStripePayment =
+      user.role === "FARMER" &&
+      Boolean(
+        finalExpertId ||
+        finalExpertEmail
+      ) &&
+      consultationFee > 0;
 
     /* --------------------------------------------------------
        Create document
@@ -1282,19 +1469,35 @@ const createConsultationIntoDB =
             : undefined,
 
         status:
-          hasSchedule
-            ? "SCHEDULED"
-            : "PENDING",
+          requiresStripePayment
+            ? "PENDING"
+            : hasSchedule
+              ? "SCHEDULED"
+              : "PENDING",
 
         videoRoomId:
+          !requiresStripePayment &&
           hasSchedule
             ? cleanRandomRoom
             : undefined,
 
         meetingLink:
+          !requiresStripePayment &&
           hasSchedule
             ? payload.meetingLink ||
               `https://meet.jit.si/${cleanRandomRoom}`
+            : undefined,
+
+        consultationFee,
+
+        paymentMethod:
+          requiresStripePayment
+            ? "STRIPE"
+            : undefined,
+
+        paymentStatus:
+          requiresStripePayment
+            ? "UNPAID"
             : undefined,
 
         notes:
@@ -3530,7 +3733,10 @@ const updateConsultationDetailsInDB =
         scheduledAtDate;
 
       consultation.status =
-        "SCHEDULED";
+        consultation.paymentStatus &&
+        consultation.paymentStatus !== "PAID"
+          ? "PENDING"
+          : "SCHEDULED";
 
       consultation.startedAt =
         undefined;
@@ -3543,6 +3749,17 @@ const updateConsultationDetailsInDB =
       payload.meetingLink !==
       undefined
     ) {
+      if (
+        consultation.paymentStatus &&
+        consultation.paymentStatus !== "PAID" &&
+        user.role !== "ADMIN"
+      ) {
+        throw new AppError(
+          409,
+          "Meeting link is created only after consultation payment is completed."
+        );
+      }
+
       consultation.meetingLink =
         payload.meetingLink;
     }

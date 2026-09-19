@@ -91,6 +91,8 @@ interface IUserDocument {
   updatedAt?: Date;
 }
 
+const DEFAULT_CONSULTATION_FEE = 500;
+
 /* ============================================================
    USER MODEL
 ============================================================ */
@@ -207,7 +209,19 @@ const userSchema =
           Number,
 
         default:
-          500,
+          DEFAULT_CONSULTATION_FEE,
+
+        validate: {
+          validator: (
+            value: number
+          ) =>
+            Number.isFinite(
+              value
+            ) && value > 0,
+
+          message:
+            "Consultation fee must be greater than 0",
+        },
       },
 
       languages: {
@@ -633,6 +647,20 @@ const getPendingVisibleToExpertFilter =
     ],
   });
 
+const normalizeConsultationFee =
+  (
+    value:
+      unknown
+  ): number =>
+    typeof value ===
+      "number" &&
+    Number.isFinite(
+      value
+    ) &&
+    value > 0
+      ? value
+      : DEFAULT_CONSULTATION_FEE;
+
 const normalizeSpecialization =
   (
     value:
@@ -768,10 +796,9 @@ const mapExpertProfile =
           : 0,
 
       consultationFee:
-        typeof userDoc.consultationFee ===
-        "number"
-          ? userDoc.consultationFee
-          : 500,
+        normalizeConsultationFee(
+          userDoc.consultationFee
+        ),
 
       languages:
         Array.isArray(
@@ -1051,7 +1078,7 @@ const getExpertProfileFromDB =
           0,
 
         consultationFee:
-          500,
+          DEFAULT_CONSULTATION_FEE,
 
         languages: [
           "Bengali",
@@ -1548,10 +1575,9 @@ const getAllExpertsFromDB =
               : 0,
 
           consultationFee:
-            typeof expert.consultationFee ===
-            "number"
-              ? expert.consultationFee
-              : 500,
+            normalizeConsultationFee(
+              expert.consultationFee
+            ),
 
           languages:
             Array.isArray(

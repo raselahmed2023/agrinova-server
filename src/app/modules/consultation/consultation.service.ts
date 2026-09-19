@@ -8,7 +8,6 @@ import type {
 import { Consultation } from "./consultation.model";
 import {
   UserModel,
-  defaultAvailabilitySlots,
 } from "../expert/expert.service";
 import type {
   WeekDay,
@@ -27,6 +26,7 @@ import {
 const EARLY_JOIN_MINUTES = 15;
 const CONSULTATION_DURATION_MINUTES = 30;
 const LATE_JOIN_GRACE_MINUTES = 30;
+const DEFAULT_CONSULTATION_FEE = 500;
 
 /* ============================================================
    TYPES
@@ -653,6 +653,180 @@ const toTimeInputValue = (
   return `${hours}:${minutes}`;
 };
 
+const normalizePositiveConsultationFee = (
+  value: unknown
+) => {
+  const fee =
+    Number(
+      value
+    );
+
+  return Number.isFinite(
+    fee
+  ) &&
+    fee > 0
+    ? fee
+    : DEFAULT_CONSULTATION_FEE;
+};
+
+const consultationTimeToMinutes = (
+  value?: string
+) => {
+  const normalized =
+    normalizeConsultationTime(
+      value
+    );
+
+  if (!normalized) {
+    return null;
+  }
+
+  const [
+    hour,
+    minute,
+  ] =
+    normalized
+      .split(":")
+      .map(
+        Number
+      );
+
+  if (
+    !Number.isFinite(
+      hour
+    ) ||
+    !Number.isFinite(
+      minute
+    )
+  ) {
+    return null;
+  }
+
+  return (
+    hour * 60 +
+    minute
+  );
+};
+
+const assertExpertAvailableForSchedule = (
+  expertDoc: {
+    availabilityStatus?:
+      | "AVAILABLE"
+      | "UNAVAILABLE";
+
+    availabilitySlots?:
+      IAvailabilitySlot[];
+  },
+
+  scheduledAtDate: Date,
+
+  scheduledTime?: string
+) => {
+  if (
+    expertDoc
+      .availabilityStatus ===
+    "UNAVAILABLE"
+  ) {
+    throw new AppError(
+      409,
+      "Expert is currently unavailable. Please choose another specialist or try again later."
+    );
+  }
+
+  const availabilitySlots =
+    Array.isArray(
+      expertDoc
+        .availabilitySlots
+    )
+      ? expertDoc
+          .availabilitySlots
+      : [];
+
+  if (
+    availabilitySlots.length ===
+    0
+  ) {
+    throw new AppError(
+      409,
+      "This expert has not configured consultation availability yet."
+    );
+  }
+
+  const targetDay =
+    weekDayMap[
+      scheduledAtDate.getDay()
+    ];
+
+  const matchingSlot =
+    availabilitySlots.find(
+      (
+        slot
+      ) =>
+        slot.day ===
+          targetDay &&
+        slot.enabled
+    );
+
+  if (
+    !matchingSlot ||
+    !matchingSlot.startTime ||
+    !matchingSlot.endTime
+  ) {
+    throw new AppError(
+      409,
+      `Expert is not available on ${targetDay}. Please choose an enabled day.`
+    );
+  }
+
+  const selectedTime =
+    scheduledTime ||
+    toTimeInputValue(
+      scheduledAtDate
+    );
+
+  const selectedMinutes =
+    consultationTimeToMinutes(
+      selectedTime
+    );
+
+  const startMinutes =
+    consultationTimeToMinutes(
+      matchingSlot.startTime
+    );
+
+  const endMinutes =
+    consultationTimeToMinutes(
+      matchingSlot.endTime
+    );
+
+  if (
+    selectedMinutes === null ||
+    startMinutes === null ||
+    endMinutes === null
+  ) {
+    throw new AppError(
+      400,
+      "Invalid consultation time or expert availability configuration."
+    );
+  }
+
+  const consultationEndMinutes =
+    selectedMinutes +
+    CONSULTATION_DURATION_MINUTES;
+
+  if (
+    selectedMinutes <
+      startMinutes ||
+    consultationEndMinutes >
+      endMinutes
+  ) {
+    throw new AppError(
+      409,
+      `Selected time (${selectedTime}) is outside the expert's available hours for ${targetDay} (${matchingSlot.startTime} - ${matchingSlot.endTime}).`
+    );
+  }
+};
+
 /* ============================================================
    EXPERT LOOKUP
 ============================================================ */
@@ -939,25 +1113,261 @@ const createConsultationIntoDB =
         user.email
       );
 
-    const expertId =
+    const requestedExpertId =
       payload.expertId
         ?.trim() ||
       undefined;
 
-    const expertEmail =
+    const requestedExpertEmail =
       payload.expertEmail
         ? normalizeEmail(
             payload.expertEmail
           )
         : undefined;
 
+    /*
+     * Current production Farmer flow:
+     * Farmer selects one approved Expert, chooses an available
+     * schedule, creates the consultation, then completes Stripe
+     * payment. Do not allow direct API calls to bypass that flow.
+     */
+    if (
+      user.role ===
+        "FARMER" &&
+      !requestedExpertId &&
+      !requestedExpertEmail
+    ) {
+      throw new AppError(
+        400,
+        "Please select an agricultural expert before booking a consultation."
+      );
+    }
+
+    if (
+      user.role ===
+        "FARMER" &&
+      (
+        !payload.scheduledDate ||
+        !payload.scheduledTime
+      )
+    ) {
+      throw new AppError(
+        400,
+        "Please select an available consultation date and time."
+      );
+    }
+
     /* --------------------------------------------------------
-       Prevent multiple active requests to same Expert
+       Fetch and verify the real Expert
+    -------------------------------------------------------- */
+
+    let selectedExpertDoc:
+      any = null;
+
+    let expertDetails:
+      | {
+          id: string;
+          name: string;
+          email: string;
+          title: string;
+          avatar?: string;
+          phone?: string;
+          consultationFee: number;
+        }
+      | undefined;
+
+    if (
+      requestedExpertId ||
+      requestedExpertEmail
+    ) {
+      const lookupConditions:
+        Record<
+          string,
+          unknown
+        >[] = [];
+
+      if (
+        requestedExpertId &&
+        isValidObjectId(
+          requestedExpertId
+        )
+      ) {
+        lookupConditions.push({
+          _id:
+            requestedExpertId,
+        });
+      }
+
+      if (
+        requestedExpertEmail
+      ) {
+        lookupConditions.push({
+          email:
+            requestedExpertEmail,
+        });
+      }
+
+      if (
+        lookupConditions.length ===
+        0
+      ) {
+        throw new AppError(
+          400,
+          "Invalid agricultural expert."
+        );
+      }
+
+      selectedExpertDoc =
+        await UserModel.findOne(
+          {
+            $and: [
+              {
+                $or:
+                  lookupConditions,
+              },
+
+              {
+                role:
+                  "EXPERT",
+              },
+
+              {
+                status:
+                  "APPROVED",
+              },
+            ],
+          }
+        );
+
+      if (
+        !selectedExpertDoc
+      ) {
+        throw new AppError(
+          404,
+          "The selected agricultural expert is not available for booking."
+        );
+      }
+
+      if (
+        selectedExpertDoc
+          .availabilityStatus ===
+        "UNAVAILABLE"
+      ) {
+        throw new AppError(
+          409,
+          "The selected expert is currently unavailable. Please choose another specialist or try again later."
+        );
+      }
+
+      expertDetails = {
+        id:
+          selectedExpertDoc
+            ._id
+            .toString(),
+
+        name:
+          selectedExpertDoc
+            .name,
+
+        email:
+          normalizeEmail(
+            selectedExpertDoc
+              .email
+          ),
+
+        title:
+          selectedExpertDoc
+            .title ||
+          "Agricultural Specialist",
+
+        avatar:
+          selectedExpertDoc
+            .avatar ||
+          selectedExpertDoc
+            .image,
+
+        phone:
+          selectedExpertDoc
+            .phone,
+
+        consultationFee:
+          normalizePositiveConsultationFee(
+            selectedExpertDoc
+              .consultationFee
+          ),
+      };
+    }
+
+    const finalExpertId =
+      expertDetails?.id;
+
+    const finalExpertEmail =
+      expertDetails?.email;
+
+    const finalExpertName =
+      expertDetails?.name;
+
+    /* --------------------------------------------------------
+       Scheduled date
+    -------------------------------------------------------- */
+
+    const scheduledAt =
+      createScheduledAt(
+        undefined,
+        payload.scheduledDate,
+        payload.scheduledTime
+      );
+
+    const hasSchedule =
+      Boolean(
+        payload.scheduledDate &&
+          payload.scheduledTime &&
+          scheduledAt
+      );
+
+    if (
+      user.role ===
+        "FARMER" &&
+      !hasSchedule
+    ) {
+      throw new AppError(
+        400,
+        "The selected consultation date or time is invalid."
+      );
+    }
+
+    if (
+      hasSchedule &&
+      scheduledAt
+    ) {
+      if (
+        scheduledAt.getTime() <=
+        Date.now()
+      ) {
+        throw new AppError(
+          400,
+          "Consultation time must be in the future."
+        );
+      }
+
+      if (
+        selectedExpertDoc
+      ) {
+        assertExpertAvailableForSchedule(
+          selectedExpertDoc,
+          scheduledAt,
+          payload.scheduledTime
+        );
+      }
+    }
+
+    /* --------------------------------------------------------
+       Prevent multiple active requests to the same Expert
     -------------------------------------------------------- */
 
     if (
-      expertId ||
-      expertEmail
+      finalExpertId ||
+      finalExpertEmail
     ) {
       const expertConditions:
         Record<
@@ -965,26 +1375,32 @@ const createConsultationIntoDB =
           unknown
         >[] = [];
 
-      if (expertId) {
+      if (
+        finalExpertId
+      ) {
         expertConditions.push(
           {
-            expertId,
+            expertId:
+              finalExpertId,
           },
           {
             "expert.id":
-              expertId,
+              finalExpertId,
           }
         );
       }
 
-      if (expertEmail) {
+      if (
+        finalExpertEmail
+      ) {
         expertConditions.push(
           {
-            expertEmail,
+            expertEmail:
+              finalExpertEmail,
           },
           {
             "expert.email":
-              expertEmail,
+              finalExpertEmail,
           }
         );
       }
@@ -1015,8 +1431,6 @@ const createConsultationIntoDB =
                   ],
                 },
               },
-
-              getPaidOrLegacyConsultationFilter(),
             ],
           }
         );
@@ -1025,20 +1439,24 @@ const createConsultationIntoDB =
         existingActiveWithExpert
       ) {
         throw new AppError(
-          400,
+          409,
           `You already have an active consultation (${existingActiveWithExpert.status.toLowerCase()}) with specialist ${
             existingActiveWithExpert.expertName ||
             "this specialist"
-          }. A farmer can schedule only one request to the same expert at a time.`
+          }. Complete or cancel that booking before creating another one with the same expert.`
         );
       }
     }
 
     /* --------------------------------------------------------
-       Farmer time conflict
+       Farmer + Expert time conflicts
+
+       PENDING is included because an unpaid Stripe booking is
+       already reserving that selected slot.
     -------------------------------------------------------- */
 
     if (
+      hasSchedule &&
       payload.scheduledDate &&
       payload.scheduledTime
     ) {
@@ -1066,14 +1484,13 @@ const createConsultationIntoDB =
               {
                 status: {
                   $in: [
+                    "PENDING",
                     "ACCEPTED",
                     "SCHEDULED",
                     "ONGOING",
                   ],
                 },
               },
-
-              getPaidOrLegacyConsultationFilter(),
             ],
           }
         );
@@ -1082,7 +1499,7 @@ const createConsultationIntoDB =
         farmerTimeConflict
       ) {
         throw new AppError(
-          400,
+          409,
           `Time conflict: You already have another consultation booked on ${payload.scheduledDate} at ${payload.scheduledTime} with ${
             farmerTimeConflict.expertName ||
             "another specialist"
@@ -1090,13 +1507,9 @@ const createConsultationIntoDB =
         );
       }
 
-      /* ------------------------------------------------------
-         Expert time conflict
-      ------------------------------------------------------ */
-
       if (
-        expertId ||
-        expertEmail
+        finalExpertId ||
+        finalExpertEmail
       ) {
         const expertConditions:
           Record<
@@ -1104,26 +1517,32 @@ const createConsultationIntoDB =
             unknown
           >[] = [];
 
-        if (expertId) {
+        if (
+          finalExpertId
+        ) {
           expertConditions.push(
             {
-              expertId,
+              expertId:
+                finalExpertId,
             },
             {
               "expert.id":
-                expertId,
+                finalExpertId,
             }
           );
         }
 
-        if (expertEmail) {
+        if (
+          finalExpertEmail
+        ) {
           expertConditions.push(
             {
-              expertEmail,
+              expertEmail:
+                finalExpertEmail,
             },
             {
               "expert.email":
-                expertEmail,
+                finalExpertEmail,
             }
           );
         }
@@ -1150,14 +1569,13 @@ const createConsultationIntoDB =
                 {
                   status: {
                     $in: [
+                      "PENDING",
                       "ACCEPTED",
                       "SCHEDULED",
                       "ONGOING",
                     ],
                   },
                 },
-
-                getPaidOrLegacyConsultationFilter(),
               ],
             }
           );
@@ -1166,132 +1584,12 @@ const createConsultationIntoDB =
           expertTimeConflict
         ) {
           throw new AppError(
-            400,
+            409,
             `Time slot unavailable: This specialist already has a consultation booked on ${payload.scheduledDate} at ${payload.scheduledTime}. Please choose another available time slot.`
           );
         }
       }
     }
-
-    /* --------------------------------------------------------
-       Fetch real Expert data
-    -------------------------------------------------------- */
-
-    let expertDetails:
-      | {
-          id: string;
-          name: string;
-          email: string;
-          title: string;
-          avatar?: string;
-          phone?: string;
-          consultationFee: number;
-        }
-      | undefined;
-
-    if (
-      expertId ||
-      expertEmail
-    ) {
-      try {
-        const lookupConditions:
-          Record<
-            string,
-            unknown
-          >[] = [];
-
-        if (
-          expertId &&
-          isValidObjectId(
-            expertId
-          )
-        ) {
-          lookupConditions.push({
-            _id:
-              expertId,
-          });
-        }
-
-        if (expertEmail) {
-          lookupConditions.push({
-            email:
-              expertEmail,
-          });
-        }
-
-        const expertDoc =
-          lookupConditions.length >
-          0
-            ? await UserModel.findOne(
-                {
-                  $or:
-                    lookupConditions,
-                }
-              )
-            : null;
-
-        if (expertDoc) {
-          expertDetails = {
-            id:
-              expertDoc._id.toString(),
-
-            name:
-              expertDoc.name,
-
-            email:
-              normalizeEmail(
-                expertDoc.email
-              ),
-
-            title:
-              expertDoc.title ||
-              "Agricultural Specialist",
-
-            avatar:
-              expertDoc.avatar ||
-              expertDoc.image,
-
-            phone:
-              expertDoc.phone,
-
-            consultationFee:
-              Number.isFinite(
-                Number(
-                  expertDoc.consultationFee
-                )
-              )
-                ? Math.max(
-                    0,
-                    Number(
-                      expertDoc.consultationFee
-                    )
-                  )
-                : 500,
-          };
-        }
-      } catch {
-        expertDetails =
-          undefined;
-      }
-    }
-
-    /* --------------------------------------------------------
-       Scheduled date
-    -------------------------------------------------------- */
-
-    const scheduledAt =
-      createScheduledAt(
-        undefined,
-        payload.scheduledDate,
-        payload.scheduledTime
-      );
-
-    const hasSchedule =
-      Boolean(
-        payload.scheduledDate &&
-          payload.scheduledTime &&
-          scheduledAt
-      );
 
     const cleanRandomRoom =
       `agrinova-consultation-${Date.now()}-${Math.floor(
@@ -1299,52 +1597,31 @@ const createConsultationIntoDB =
           1000
       )}`;
 
-    const finalExpertId =
-      expertDetails?.id ||
-      expertId;
-
-    const finalExpertEmail =
-      expertDetails?.email ||
-      expertEmail;
-
-    const finalExpertName =
-      expertDetails?.name ||
-      payload.expertName;
-
     /* --------------------------------------------------------
        Consultation payment
 
-       IMPORTANT: fee is resolved from the server-side Expert
-       record. It is never accepted from the Farmer request body.
+       Fee is always resolved from the server-side Expert record.
+       A Farmer booking with an Expert always requires payment.
+       This prevents a 0/invalid fee from bypassing Stripe.
     -------------------------------------------------------- */
 
-    const resolvedConsultationFee =
-      Number(
-        expertDetails
-          ?.consultationFee ??
-          500
-      );
-
-    const consultationFee =
-      finalExpertId ||
-      finalExpertEmail
-        ? Number.isFinite(
-            resolvedConsultationFee
-          )
-          ? Math.max(
-              0,
-              resolvedConsultationFee
-            )
-          : 500
-        : 0;
-
-    const requiresStripePayment =
-      user.role === "FARMER" &&
+    const hasSelectedExpert =
       Boolean(
         finalExpertId ||
         finalExpertEmail
-      ) &&
-      consultationFee > 0;
+      );
+
+    const consultationFee =
+      hasSelectedExpert
+        ? expertDetails
+            ?.consultationFee ??
+          DEFAULT_CONSULTATION_FEE
+        : 0;
+
+    const requiresStripePayment =
+      user.role ===
+        "FARMER" &&
+      hasSelectedExpert;
 
     /* --------------------------------------------------------
        Create document
@@ -2390,90 +2667,31 @@ const scheduleConsultationInDB =
         : null;
 
     /* --------------------------------------------------------
-       Availability status
+       Expert availability
+
+       Do not invent fallback availability. If the Expert has
+       not configured slots, the consultation cannot be scheduled.
     -------------------------------------------------------- */
 
     if (
-      expertDoc
-        ?.availabilityStatus ===
-      "UNAVAILABLE"
-    ) {
-      throw new AppError(
-        400,
-        "Expert is currently marked as UNAVAILABLE. Cannot schedule consultations."
-      );
-    }
-
-    const availabilitySlots =
-      expertDoc
-        ?.availabilitySlots &&
-      Array.isArray(
-        expertDoc.availabilitySlots
-      ) &&
-      expertDoc
-        .availabilitySlots
-        .length >
-        0
-        ? expertDoc.availabilitySlots
-        : defaultAvailabilitySlots;
-
-    /* --------------------------------------------------------
-       Weekday + availability window
-    -------------------------------------------------------- */
-
-    if (
-      expertDoc ||
+      !expertDoc &&
       expertUser.role ===
         "EXPERT"
     ) {
-      const targetDay =
-        weekDayMap[
-          scheduledAtDate.getDay()
-        ];
+      throw new AppError(
+        404,
+        "Expert profile not found."
+      );
+    }
 
-      const matchingSlot =
-        (
-          availabilitySlots as
-            IAvailabilitySlot[]
-        ).find(
-          (
-            slot
-          ) =>
-            slot.day ===
-            targetDay
-        );
-
-      if (
-        !matchingSlot ||
-        !matchingSlot.enabled
-      ) {
-        throw new AppError(
-          400,
-          `Expert is not available on ${targetDay}. Please choose an enabled day.`
-        );
-      }
-
-      const scheduledTimeStr =
-        payload.scheduledTime ||
-        toTimeInputValue(
-          scheduledAtDate
-        );
-
-      if (
-        matchingSlot.startTime &&
-        matchingSlot.endTime &&
-        (
-          scheduledTimeStr <
-            matchingSlot.startTime ||
-          scheduledTimeStr >
-            matchingSlot.endTime
-        )
-      ) {
-        throw new AppError(
-          400,
-          `Selected time (${scheduledTimeStr}) is outside available hours for ${targetDay} (${matchingSlot.startTime} - ${matchingSlot.endTime}).`
-        );
-      }
+    if (
+      expertDoc
+    ) {
+      assertExpertAvailableForSchedule(
+        expertDoc,
+        scheduledAtDate,
+        payload.scheduledTime
+      );
     }
 
     /* --------------------------------------------------------
@@ -3556,6 +3774,51 @@ const updateConsultationDetailsInDB =
           scheduledAtDate
         );
 
+      const assignedExpertLookup =
+        getExpertLookup(
+          consultation,
+
+          user.role ===
+            "EXPERT"
+            ? user
+            : undefined
+        );
+
+      const assignedExpertDoc =
+        assignedExpertLookup
+          ? await UserModel.findOne(
+              assignedExpertLookup
+            )
+          : null;
+
+      const hasAssignedExpert =
+        Boolean(
+          consultation.expertId ||
+          consultation.expertEmail ||
+          consultation.expert?.id ||
+          consultation.expert?.email
+        );
+
+      if (
+        hasAssignedExpert &&
+        !assignedExpertDoc
+      ) {
+        throw new AppError(
+          404,
+          "Assigned expert profile not found."
+        );
+      }
+
+      if (
+        assignedExpertDoc
+      ) {
+        assertExpertAvailableForSchedule(
+          assignedExpertDoc,
+          scheduledAtDate,
+          newTime
+        );
+      }
+
       /* ------------------------------------------------------
          FARMER conflict
       ------------------------------------------------------ */
@@ -3638,6 +3901,7 @@ const updateConsultationDetailsInDB =
                 {
                   status: {
                     $in: [
+                      "PENDING",
                       "ACCEPTED",
                       "SCHEDULED",
                       "ONGOING",
@@ -3703,6 +3967,7 @@ const updateConsultationDetailsInDB =
                 {
                   status: {
                     $in: [
+                      "PENDING",
                       "ACCEPTED",
                       "SCHEDULED",
                       "ONGOING",

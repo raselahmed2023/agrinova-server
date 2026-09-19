@@ -16,11 +16,19 @@ const supplyRequestSchema =
     {
       trackingCode: {
         type: String,
-        required: true,
+        required: [
+          true,
+          "Tracking code is required",
+        ],
         unique: true,
         uppercase: true,
         trim: true,
         index: true,
+        immutable: true,
+        match: [
+          /^AGN-[A-F0-9]{8}$/,
+          "Invalid tracking code",
+        ],
       },
 
       farmerId: {
@@ -31,6 +39,7 @@ const supplyRequestSchema =
         ],
         trim: true,
         index: true,
+        immutable: true,
       },
 
       farmerName: {
@@ -40,6 +49,14 @@ const supplyRequestSchema =
           "Farmer name is required",
         ],
         trim: true,
+        minlength: [
+          2,
+          "Farmer name must be at least 2 characters",
+        ],
+        maxlength: [
+          100,
+          "Farmer name cannot exceed 100 characters",
+        ],
       },
 
       phone: {
@@ -49,6 +66,10 @@ const supplyRequestSchema =
           "Phone number is required",
         ],
         trim: true,
+        match: [
+          /^01[3-9]\d{8}$/,
+          "Invalid Bangladeshi phone number",
+        ],
       },
 
       farmerEmail: {
@@ -65,6 +86,14 @@ const supplyRequestSchema =
           "Product name is required",
         ],
         trim: true,
+        minlength: [
+          2,
+          "Product name must be at least 2 characters",
+        ],
+        maxlength: [
+          120,
+          "Product name cannot exceed 120 characters",
+        ],
       },
 
       category: {
@@ -76,8 +105,20 @@ const supplyRequestSchema =
 
       quantity: {
         type: Number,
-        required: true,
-        min: 0.01,
+        required: [
+          true,
+          "Quantity is required",
+        ],
+        validate: {
+          validator: (
+            value: number
+          ) =>
+            Number.isFinite(
+              value
+            ) && value > 0,
+          message:
+            "Quantity must be greater than 0",
+        },
       },
 
       unit: {
@@ -89,32 +130,76 @@ const supplyRequestSchema =
 
       expectedPrice: {
         type: Number,
-        required: true,
-        min: 0,
+        required: [
+          true,
+          "Expected price is required",
+        ],
+        validate: {
+          validator: (
+            value: number
+          ) =>
+            Number.isFinite(
+              value
+            ) && value > 0,
+          message:
+            "Expected price must be greater than 0",
+        },
       },
 
       division: {
         type: String,
-        required: true,
+        required: [
+          true,
+          "Division is required",
+        ],
         trim: true,
+        maxlength: [
+          100,
+          "Division cannot exceed 100 characters",
+        ],
       },
 
       district: {
         type: String,
-        required: true,
+        required: [
+          true,
+          "District is required",
+        ],
         trim: true,
+        maxlength: [
+          100,
+          "District cannot exceed 100 characters",
+        ],
       },
 
       upazila: {
         type: String,
-        required: true,
+        required: [
+          true,
+          "Upazila is required",
+        ],
         trim: true,
+        maxlength: [
+          100,
+          "Upazila cannot exceed 100 characters",
+        ],
       },
 
       location: {
         type: String,
-        required: true,
+        required: [
+          true,
+          "Location is required",
+        ],
         trim: true,
+        minlength: [
+          2,
+          "Location must be at least 2 characters",
+        ],
+        maxlength: [
+          250,
+          "Location cannot exceed 250 characters",
+        ],
       },
 
       branch: {
@@ -128,12 +213,27 @@ const supplyRequestSchema =
       notes: {
         type: String,
         trim: true,
+        maxlength: [
+          1000,
+          "Notes cannot exceed 1000 characters",
+        ],
         default: "",
       },
 
       images: {
         type: [String],
         default: [],
+        validate: {
+          validator: (
+            value: string[]
+          ) =>
+            Array.isArray(
+              value
+            ) &&
+            value.length <= 5,
+          message:
+            "You can upload a maximum of 5 images",
+        },
       },
 
       status: {
@@ -148,6 +248,10 @@ const supplyRequestSchema =
       adminNote: {
         type: String,
         trim: true,
+        maxlength: [
+          1500,
+          "Admin note cannot exceed 1500 characters",
+        ],
         default: "",
       },
 

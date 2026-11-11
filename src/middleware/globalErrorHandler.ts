@@ -106,11 +106,7 @@ const globalErrorHandler:
         );
     }
 
-    /* --------------------------------------------------------
-       APPLICATION ERROR
 
-       AppError messages are intentional and safe to return.
-    -------------------------------------------------------- */
 
     else if (
       err instanceof

@@ -1,0 +1,88 @@
+export const NOTIFICATION_TYPES = [
+
+  "INVESTMENT_PROJECT_APPROVED",
+
+  "INVESTMENT_PROJECT_REJECTED",
+
+  "INVESTMENT_APPLICATION_APPROVED",
+
+  "INVESTMENT_APPLICATION_REJECTED",
+
+  "INVESTMENT_PAYMENT_SUBMITTED",
+
+  "INVESTMENT_PAYMENT_CONFIRMED",
+
+  "INVESTMENT_PAYMENT_REJECTED",
+
+
+  "MARKETPLACE_PRODUCT_HIDDEN",
+
+  "MARKETPLACE_PRODUCT_REMOVED",
+
+  "MARKETPLACE_PRODUCT_RESTORED",
+
+  "MARKETPLACE_NEW_ORDER",
+
+  "MARKETPLACE_READY_FOR_PICKUP",
+
+  "MARKETPLACE_PICKED_UP",
+
+  "MARKETPLACE_OUT_FOR_DELIVERY",
+
+  "MARKETPLACE_DELIVERED",
+
+
+
+  "COMMUNITY_POST_REMOVED",
+
+  "COMMUNITY_WARNING",
+
+  "COMMUNITY_POST_LIKED",
+
+  "COMMUNITY_COMMENT_ADDED",
+
+  "COMMUNITY_REPLY_ADDED",
+
+
+
+  "SUPPLY_REQUEST_SUBMITTED",
+
+  "SUPPLY_REQUEST_ACCEPTED",
+
+  "SUPPLY_REQUEST_REJECTED",
+
+  "SUPPLY_REQUEST_RECEIVED",
+
+  "SUPPLY_REQUEST_COMPLETED",
+
+
+
+  "GENERAL",
+] as const;
+
+export type TNotificationType =
+  (typeof NOTIFICATION_TYPES)[number];
+
+export interface INotification {
+  userId: string;
+
+  type:
+    TNotificationType;
+
+  title: string;
+
+  message: string;
+
+  href?: string;
+
+  readAt?: Date;
+
+  data?: Record<
+    string,
+    unknown
+  >;
+
+  createdAt?: Date;
+
+  updatedAt?: Date;
+}

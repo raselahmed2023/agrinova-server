@@ -1,48 +1,135 @@
-import { Schema, model, Document } from "mongoose";
+import {
+  Document,
+  Schema,
+  model,
+} from "mongoose";
 
-export interface IFinance extends Document {
-  type: "Income" | "Expense";
-  amount: number;
-  category: string;
-  farm?: string;
-  date: Date;
-  description?: string;
+export interface IFinance
+  extends Document {
   userId: string;
+
+  farmId?: string;
+
+  type:
+    | "Income"
+    | "Expense";
+
+  amount: number;
+
+  category: string;
+
+  date: Date;
+
+  description?: string;
 }
 
-const financeSchema = new Schema<IFinance>(
-  {
-    type: {
-      type: String,
-      enum: ["Income", "Expense"],
-      required: [true, "Transaction type is required"],
-    },
-    amount: {
-      type: Number,
-      required: [true, "Amount is required"],
-    },
-    category: {
-      type: String,
-      required: [true, "Category is required"],
-    },
-    farm: {
-      type: String,
-      default: "",
-    },
-    date: {
-      type: Date,
-      required: [true, "Date is required"],
-    },
-    description: {
-      type: String,
-      default: "",
-    },
-    userId: {
-      type: String,
-      required: [true, "User ID is required"],
-    },
-  },
-  { timestamps: true }
-);
+const financeSchema =
+  new Schema<IFinance>(
+    {
+      userId: {
+        type:
+          String,
 
-export const Finance = model<IFinance>("Finance", financeSchema);
+        required:
+          true,
+
+        index:
+          true,
+      },
+
+      farmId: {
+        type:
+          String,
+
+        default:
+          "",
+
+        index:
+          true,
+      },
+
+      type: {
+        type:
+          String,
+
+        enum: [
+          "Income",
+          "Expense",
+        ],
+
+        required:
+          true,
+      },
+
+      amount: {
+        type:
+          Number,
+
+        required:
+          true,
+
+        min:
+          0.01,
+      },
+
+      category: {
+        type:
+          String,
+
+        required:
+          true,
+
+        trim:
+          true,
+
+        maxlength:
+          100,
+      },
+
+      date: {
+        type:
+          Date,
+
+        required:
+          true,
+      },
+
+      description: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+
+        maxlength:
+          500,
+      },
+    },
+
+    {
+      timestamps:
+        true,
+    }
+  );
+
+
+financeSchema.index({
+  userId: 1,
+  date: -1,
+});
+
+
+financeSchema.index({
+  userId: 1,
+  farmId: 1,
+  date: -1,
+});
+
+export const Finance =
+  model<IFinance>(
+    "Finance",
+    financeSchema
+  );

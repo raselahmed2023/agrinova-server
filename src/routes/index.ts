@@ -1,17 +1,208 @@
-import { Router } from "express";
-import financeRouter from "../modules/finance/finance.route"; // আপনার ফাইন্যান্স রাউটারের সঠিক পাথ দিন
+import {
+  Router,
+} from "express";
 
-const router = Router();
+import {
+  FarmRoutes,
+} from "../app/modules/farm/farm.route";
 
-// Health check endpoint
-router.get("/health", (_req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "AgriNova API health check successful",
-  });
-});
+import {
+  WeatherRoutes,
+} from "../app/modules/weather/weather.route";
 
-// Finance routes
-router.use("/finance", financeRouter);
+import aiRouter from "../modules/ai/ai.route.js";
+
+import {
+  ProductRoutes,
+} from "../modules/product/product.route";
+
+import financeRouter from "../modules/finance/finance.route.js";
+
+import investmentRouter from "../modules/investment/investment.route.js";
+
+import notificationRouter from "../modules/notification/notification.route.js";
+
+import {
+  AdminRoutes,
+} from "../modules/admin/admin.route";
+
+import {
+  ConsultationRoutes,
+} from "../app/modules/consultation/consultation.route";
+
+import {
+  ExpertRoutes,
+} from "../app/modules/expert/expert.route";
+
+import {
+  BlogRoutes,
+} from "../modules/blog/blog.route";
+
+import {
+  SupplyChainRoutes,
+} from "../modules/supply-chain/supplyRequest.route";
+
+import {
+  OrderRoutes,
+} from "../modules/order/order.route";
+
+import {
+  PaymentRoutes,
+} from "../modules/payment/payment.route";
+
+import communityRouter from "../modules/community/community.route";
+
+const router =
+  Router();
+
+router.get(
+  "/health",
+  (
+    _req,
+    res
+  ) => {
+    res
+      .status(200)
+      .json({
+        success: true,
+
+        message:
+          "AgriNova API health check successful",
+      });
+  }
+);
+
+const moduleRoutes = [
+  {
+    path:
+      "/farms",
+
+    route:
+      FarmRoutes,
+  },
+
+  {
+    path:
+      "/weather",
+
+    route:
+      WeatherRoutes,
+  },
+
+  {
+    path:
+      "/ai",
+
+    route:
+      aiRouter,
+  },
+
+  {
+    path:
+      "/marketplace",
+
+    route:
+      ProductRoutes,
+  },
+
+  {
+    path:
+      "/finance",
+
+    route:
+      financeRouter,
+  },
+
+  {
+    path:
+      "/consultations",
+
+    route:
+      ConsultationRoutes,
+  },
+
+  {
+    path:
+      "/experts",
+
+    route:
+      ExpertRoutes,
+  },
+
+  {
+    path:
+      "/investments",
+
+    route:
+      investmentRouter,
+  },
+
+  {
+    path:
+      "/notifications",
+
+    route:
+      notificationRouter,
+  },
+
+  {
+    path:
+      "/admin",
+
+    route:
+      AdminRoutes,
+  },
+
+  {
+    path:
+      "/blogs",
+
+    route:
+      BlogRoutes,
+  },
+
+  {
+    path:
+      "/community",
+
+    route:
+      communityRouter,
+  },
+
+  {
+    path:
+      "/supply-chain",
+
+    route:
+      SupplyChainRoutes,
+  },
+
+  {
+    path:
+      "/orders",
+
+    route:
+      OrderRoutes,
+  },
+
+  {
+    path:
+      "/payments",
+
+    route:
+      PaymentRoutes,
+  },
+];
+
+moduleRoutes.forEach(
+  (
+    item
+  ) => {
+    router.use(
+      item.path,
+      item.route
+    );
+  }
+);
 
 export default router;

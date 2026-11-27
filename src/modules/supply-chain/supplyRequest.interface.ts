@@ -1,36 +1,48 @@
-export const SUPPLY_CATEGORIES = [
-  "vegetables",
-  "fruits",
-  "grains_cereals",
-  "pulses_seeds",
-  "spices",
-  "agricultural_by_products",
-  "other",
-] as const;
+/* ============================================================
+   CONSTANTS
+============================================================ */
 
-export const SUPPLY_UNITS = [
-  "kg",
-  "maund",
-  "ton",
-  "bag",
-  "box",
-] as const;
+export const SUPPLY_CATEGORIES =
+  [
+    "vegetables",
+    "fruits",
+    "grains_cereals",
+    "pulses_seeds",
+    "spices",
+    "agricultural_by_products",
+    "other",
+  ] as const;
 
-export const AGRINOVA_BRANCHES = [
-  "rajshahi",
-  "bogura",
-  "kushtia",
-  "chattogram",
-  "dhaka",
-] as const;
+export const SUPPLY_UNITS =
+  [
+    "kg",
+    "maund",
+    "ton",
+    "bag",
+    "box",
+  ] as const;
 
-export const SUPPLY_STATUSES = [
-  "SUBMITTED",
-  "ACCEPTED",
-  "REJECTED",
-  "RECEIVED",
-  "COMPLETED",
-] as const;
+export const AGRINOVA_BRANCHES =
+  [
+    "rajshahi",
+    "bogura",
+    "kushtia",
+    "chattogram",
+    "dhaka",
+  ] as const;
+
+export const SUPPLY_STATUSES =
+  [
+    "SUBMITTED",
+    "ACCEPTED",
+    "REJECTED",
+    "RECEIVED",
+    "COMPLETED",
+  ] as const;
+
+/* ============================================================
+   TYPES
+============================================================ */
 
 export type TSupplyCategory =
   (typeof SUPPLY_CATEGORIES)[number];
@@ -44,47 +56,171 @@ export type TAgriNovaBranch =
 export type TSupplyStatus =
   (typeof SUPPLY_STATUSES)[number];
 
+/* ============================================================
+   SUPPLY REQUEST
+============================================================ */
+
 export interface ISupplyRequest {
-  trackingCode: string;
+  /**
+   * Public tracking reference.
+   *
+   * Example:
+   * AGN-A12BC34D
+   */
+  trackingCode:
+    string;
 
-  farmerName: string;
-  phone: string;
-  farmerEmail?: string;
+  /**
+   * ==========================================================
+   * FARMER OWNERSHIP
+   * ==========================================================
+   *
+   * This value must come from req.user.id.
+   *
+   * Never trust farmerId sent from the client body.
+   *
+   * Used for:
+   * - ownership
+   * - tracking authorization
+   * - My Supply Requests
+   * - Farmer notifications
+   */
+  farmerId:
+    string;
 
-  productName: string;
-  category: TSupplyCategory;
+  farmerName:
+    string;
 
-  quantity: number;
-  unit: TSupplyUnit;
-  expectedPrice: number;
+  phone:
+    string;
 
-  division: string;
-  district: string;
-  upazila: string;
-  location: string;
+  farmerEmail?:
+    string;
 
-  branch: TAgriNovaBranch;
+  /* ==========================================================
+     PRODUCT
+  ========================================================== */
 
-  notes?: string;
-  images?: string[];
+  productName:
+    string;
 
-  status: TSupplyStatus;
+  category:
+    TSupplyCategory;
 
-  adminNote?: string;
+  quantity:
+    number;
 
-  acceptedAt?: Date;
-  rejectedAt?: Date;
-  receivedAt?: Date;
-  completedAt?: Date;
+  unit:
+    TSupplyUnit;
 
-  createdAt?: Date;
-  updatedAt?: Date;
+  expectedPrice:
+    number;
+
+  /* ==========================================================
+     LOCATION
+  ========================================================== */
+
+  division:
+    string;
+
+  district:
+    string;
+
+  upazila:
+    string;
+
+  location:
+    string;
+
+  /* ==========================================================
+     AGRINOVA BRANCH
+  ========================================================== */
+
+  branch:
+    TAgriNovaBranch;
+
+  /* ==========================================================
+     OPTIONAL PRODUCT INFORMATION
+  ========================================================== */
+
+  notes?:
+    string;
+
+  images?:
+    string[];
+
+  /* ==========================================================
+     STATUS
+  ========================================================== */
+
+  status:
+    TSupplyStatus;
+
+  /**
+   * Admin note / rejection reason.
+   */
+  adminNote?:
+    string;
+
+  /* ==========================================================
+     STATUS TIMESTAMPS
+  ========================================================== */
+
+  acceptedAt?:
+    Date;
+
+  rejectedAt?:
+    Date;
+
+  receivedAt?:
+    Date;
+
+  completedAt?:
+    Date;
+
+  /* ==========================================================
+     MONGOOSE TIMESTAMPS
+  ========================================================== */
+
+  createdAt?:
+    Date;
+
+  updatedAt?:
+    Date;
 }
 
+/* ============================================================
+   ADMIN QUERY
+============================================================ */
+
 export interface ISupplyRequestQuery {
-  status?: string;
-  branch?: string;
-  search?: string;
-  page?: string;
-  limit?: string;
+  status?:
+    string;
+
+  branch?:
+    string;
+
+  search?:
+    string;
+
+  page?:
+    string;
+
+  limit?:
+    string;
+}
+
+/* ============================================================
+   FARMER QUERY
+============================================================ */
+
+export interface IFarmerSupplyRequestQuery {
+  status?:
+    string;
+
+  page?:
+    string;
+
+  limit?:
+    string;
 }

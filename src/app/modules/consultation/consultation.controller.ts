@@ -183,7 +183,8 @@ const updateConsultationStatus = catchAsync(
     const result = await ConsultationServices.updateConsultationStatusInDB(
       targetId,
       status,
-      reason
+      reason,
+      req.user
     );
 
     sendResponse(res, {

@@ -50,6 +50,13 @@ export interface IOrderFulfillment {
 
   subtotal: number;
 
+  /**
+   * One delivery charge for this seller shipment.
+   *
+   * Optional so old orders remain compatible.
+   */
+  deliveryFee?: number;
+
   commissionRate: number;
 
   commissionAmount: number;
@@ -83,6 +90,8 @@ export interface IShippingAddress {
 }
 
 export interface IOrder {
+  idempotencyKey?: string;
+
   orderNumber: string;
 
   customerId: string;
@@ -99,6 +108,9 @@ export interface IOrder {
 
   subtotal: number;
 
+  /**
+   * Total delivery fee across all seller fulfillments.
+   */
   deliveryFee: number;
 
   commissionAmount: number;
@@ -114,6 +126,7 @@ export interface IOrder {
   paymentStatus: TPaymentStatus;
 
   paymentReference?: string;
+
   stockRestored?: boolean;
 
   notes?: string;

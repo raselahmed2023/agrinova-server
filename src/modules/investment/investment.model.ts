@@ -4,10 +4,19 @@ import {
 } from "mongoose";
 
 import {
+  FUNDING_STATUSES,
+  IInvestmentApplication,
   IInvestmentProject,
+  INVESTMENT_APPLICATION_STATUSES,
   INVESTMENT_CATEGORIES,
+  INVESTMENT_PAYMENT_METHODS,
+  INVESTMENT_PAYMENT_STATUSES,
   INVESTMENT_STATUSES,
 } from "./investment.interface";
+
+/* ============================================================
+   PROJECT
+============================================================ */
 
 const investmentSchema =
   new Schema<IInvestmentProject>(
@@ -17,6 +26,7 @@ const investmentSchema =
         required: true,
         unique: true,
         index: true,
+        trim: true,
       },
 
       farmerId: {
@@ -37,6 +47,23 @@ const investmentSchema =
         trim: true,
       },
 
+      /**
+       * Optional now.
+       *
+       * Old projects can continue to keep their farm link.
+       */
+      farmId: {
+        type: String,
+        default: "",
+        index: true,
+      },
+
+      farmName: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+
       projectName: {
         type: String,
         required: true,
@@ -45,7 +72,8 @@ const investmentSchema =
 
       category: {
         type: String,
-        enum: INVESTMENT_CATEGORIES,
+        enum:
+          INVESTMENT_CATEGORIES,
         required: true,
       },
 
@@ -55,46 +83,38 @@ const investmentSchema =
         min: 1,
       },
 
-      ownContribution: {
+      minimumInvestment: {
+        type: Number,
+        required: true,
+        min: 1,
+        default: 1000,
+      },
+
+      fundedAmount: {
         type: Number,
         default: 0,
         min: 0,
       },
 
-      duration: {
-        type: String,
-        required: true,
-        trim: true,
-      },
-
-      expectedReturn: {
-        type: String,
-        required: true,
-        trim: true,
-      },
-
-      profitSharing: {
-        type: String,
-        required: true,
-        trim: true,
-      },
-
-      estimatedRevenue: {
+      durationMonths: {
         type: Number,
         required: true,
-        min: 0,
+        min: 1,
+        max: 120,
+        default: 6,
       },
 
-      estimatedCost: {
+      /**
+       * Projected ROI over the full investment term.
+       *
+       * Example:
+       * 15 = 15%
+       */
+      expectedReturnPercent: {
         type: Number,
-        required: true,
         min: 0,
-      },
-
-      estimatedProfit: {
-        type: Number,
-        required: true,
-        min: 0,
+        max: 500,
+        default: 0,
       },
 
       division: {
@@ -118,8 +138,8 @@ const investmentSchema =
 
       address: {
         type: String,
-        required: true,
         trim: true,
+        default: "",
       },
 
       description: {
@@ -128,18 +148,13 @@ const investmentSchema =
         trim: true,
       },
 
-      projectImage: {
-        type: String,
-        trim: true,
-      },
-
-      nidNumber: {
+      useOfFunds: {
         type: String,
         required: true,
         trim: true,
       },
 
-      nidFrontImage: {
+      projectImage: {
         type: String,
         trim: true,
       },
@@ -151,8 +166,19 @@ const investmentSchema =
 
       status: {
         type: String,
-        enum: INVESTMENT_STATUSES,
-        default: "PENDING_REVIEW",
+        enum:
+          INVESTMENT_STATUSES,
+        default:
+          "PENDING_REVIEW",
+        index: true,
+      },
+
+      fundingStatus: {
+        type: String,
+        enum:
+          FUNDING_STATUSES,
+        default:
+          "OPEN",
         index: true,
       },
 
@@ -163,6 +189,253 @@ const investmentSchema =
       },
 
       reviewedAt: {
+        type: Date,
+      },
+
+      approvedAt: {
+        type: Date,
+      },
+
+      isDeleted: {
+        type: Boolean,
+        default: false,
+        index: true,
+      },
+
+      /* ======================================================
+         LEGACY FIELDS
+      ====================================================== */
+
+      ownContribution: {
+        type: Number,
+        min: 0,
+      },
+
+      investorSharePercent: {
+        type: Number,
+        min: 0,
+        max: 100,
+      },
+
+      duration: {
+        type: String,
+        trim: true,
+      },
+
+      expectedReturn: {
+        type: String,
+        trim: true,
+      },
+
+      profitSharing: {
+        type: String,
+        trim: true,
+      },
+
+      estimatedRevenue: {
+        type: Number,
+        min: 0,
+      },
+
+      estimatedCost: {
+        type: Number,
+        min: 0,
+      },
+
+      estimatedProfit: {
+        type: Number,
+        min: 0,
+      },
+
+      nidNumber: {
+        type: String,
+        trim: true,
+      },
+
+      nidFrontImage: {
+        type: String,
+        trim: true,
+      },
+    },
+    {
+      timestamps: true,
+    }
+  );
+
+/* ============================================================
+   APPLICATION
+============================================================ */
+
+const investmentApplicationSchema =
+  new Schema<IInvestmentApplication>(
+    {
+      applicationCode: {
+        type: String,
+        required: true,
+        unique: true,
+        index: true,
+      },
+
+      projectId: {
+        type: String,
+        required: true,
+        index: true,
+      },
+
+      projectCode: {
+        type: String,
+        required: true,
+        index: true,
+      },
+
+      projectName: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      projectOwnerId: {
+        type: String,
+        required: true,
+        index: true,
+      },
+
+      projectOwnerName: {
+        type: String,
+        trim: true,
+      },
+
+      projectOwnerEmail: {
+        type: String,
+        required: true,
+        lowercase: true,
+        trim: true,
+      },
+
+      investorId: {
+        type: String,
+        required: true,
+        index: true,
+      },
+
+      investorName: {
+        type: String,
+        trim: true,
+      },
+
+      investorEmail: {
+        type: String,
+        required: true,
+        lowercase: true,
+        trim: true,
+      },
+
+      /**
+       * Sensitive.
+       *
+       * Hidden from ordinary queries.
+       * Admin service explicitly selects it when needed.
+       */
+      nidNumber: {
+        type: String,
+        required: true,
+        trim: true,
+        select: false,
+      },
+
+      amount: {
+        type: Number,
+        required: true,
+        min: 1,
+      },
+
+      expectedReturnPercent: {
+        type: Number,
+        min: 0,
+        max: 500,
+        default: 0,
+      },
+
+      durationMonths: {
+        type: Number,
+        min: 1,
+        max: 120,
+      },
+
+      note: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+
+      paymentMethod: {
+        type: String,
+        enum:
+          INVESTMENT_PAYMENT_METHODS,
+        required: true,
+      },
+
+      status: {
+        type: String,
+        enum:
+          INVESTMENT_APPLICATION_STATUSES,
+        default:
+          "PENDING_REVIEW",
+        index: true,
+      },
+
+      adminNote: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+
+      reviewedAt: {
+        type: Date,
+      },
+
+      paymentStatus: {
+        type: String,
+        enum:
+          INVESTMENT_PAYMENT_STATUSES,
+        default:
+          "NOT_STARTED",
+        index: true,
+      },
+
+      senderBankName: {
+        type: String,
+        trim: true,
+      },
+
+      transactionReference: {
+        type: String,
+        trim: true,
+      },
+
+      paymentProofUrl: {
+        type: String,
+        trim: true,
+      },
+
+      stripeSessionId: {
+        type: String,
+        trim: true,
+        index: true,
+      },
+
+      stripePaymentIntentId: {
+        type: String,
+        trim: true,
+      },
+
+      paymentAdminNote: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+
+      paymentReviewedAt: {
         type: Date,
       },
 
@@ -177,8 +450,20 @@ const investmentSchema =
     }
   );
 
+investmentApplicationSchema.index({
+  projectId: 1,
+  investorId: 1,
+  createdAt: -1,
+});
+
 export const InvestmentProject =
   model<IInvestmentProject>(
     "InvestmentProject",
     investmentSchema
+  );
+
+export const InvestmentApplication =
+  model<IInvestmentApplication>(
+    "InvestmentApplication",
+    investmentApplicationSchema
   );

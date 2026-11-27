@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+export const agentEggSchema = z.object({
+  body: z.object({
+    message: z.string().trim().min(2, "Message is required").max(1500, "Message is too long"),
+    context: z.string().trim().max(2500).optional(),
+  }),
+});
+
+
 export const farmingAssistantSchema = z.object({
   body: z.object({
     message: z
@@ -82,6 +90,7 @@ export const treatmentRecommendationSchema = z.object({
 });
 
 export const AIValidations = {
+  agentEggSchema,
   farmingAssistantSchema,
   smartFarmingRecommendationSchema,
   treatmentRecommendationSchema,

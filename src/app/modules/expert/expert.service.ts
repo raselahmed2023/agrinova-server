@@ -572,11 +572,6 @@ export const mockSpecialistsList = [
 ];
 
 const getAllExpertsFromDB = async () => {
-  let dbExperts = [];
-  try {
-    dbExperts = await UserModel.find({
-      role: "EXPERT",
-const getAllExpertsFromDB = async () => {
   let dbExperts: any[] = [];
 
   try {

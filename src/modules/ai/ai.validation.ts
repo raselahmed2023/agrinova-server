@@ -81,7 +81,41 @@ export const treatmentRecommendationSchema = z.object({
   }),
 });
 
+export const cropRecommendationSchema = z.object({
+  body: z.object({
+    location: z
+      .string()
+      .trim()
+      .min(2, "Location is required"),
+
+    soilType: z
+      .string()
+      .trim()
+      .min(2, "Soil type is required"),
+
+    season: z
+      .string()
+      .trim()
+      .min(2, "Season is required"),
+
+    waterAvailability: z.enum([
+      "LOW",
+      "MEDIUM",
+      "HIGH",
+    ]),
+
+    farmSize: z.number().positive().optional(),
+
+    notes: z
+      .string()
+      .trim()
+      .max(1000, "Notes are too long")
+      .optional(),
+  }),
+});
+
 export const AIValidations = {
+  cropRecommendationSchema,
   farmingAssistantSchema,
   smartFarmingRecommendationSchema,
   treatmentRecommendationSchema,

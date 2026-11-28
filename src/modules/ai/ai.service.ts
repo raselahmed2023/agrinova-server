@@ -1,5 +1,7 @@
 import type {
   IAITextResponse,
+  ICropRecommendationInput,
+  ICropRecommendationResponse,
   IDiseaseDetectionResult,
   IFarmingAssistantInput,
   ITreatmentRecommendationInput,
@@ -114,6 +116,96 @@ ${payload.context || "No additional context provided."}
     systemPrompt,
     userPrompt
   );
+};
+
+const cropRecommendation = async (
+  payload: ICropRecommendationInput
+): Promise<ICropRecommendationResponse> => {
+  const systemPrompt = `
+You are AgriNova's crop recommendation assistant.
+
+Analyze the provided farm conditions and recommend suitable crops.
+
+Return ONLY valid JSON.
+
+Use exactly this structure:
+
+{
+  "recommendations": [
+    {
+      "cropName": "string",
+      "suitability": "High",
+      "reasons": [
+        "string"
+      ],
+      "growingPeriod": "string",
+      "basicCare": [
+        "string"
+      ],
+      "risks": [
+        "string"
+      ]
+    }
+  ]
+}
+
+Rules:
+
+1. Return 3 to 5 crop recommendations.
+2. suitability must only be High, Medium, or Low.
+3. Consider Bangladesh agricultural conditions when location is in Bangladesh.
+4. Do not return markdown.
+5. Do not use code fences.
+6. Do not fabricate exact yield or profit guarantees.
+`;
+
+  const userPrompt = `
+Farm Information
+
+Location:
+${payload.location}
+
+Soil Type:
+${payload.soilType}
+
+Season:
+${payload.season}
+
+Water Availability:
+${payload.waterAvailability}
+
+Farm Size:
+${payload.farmSize ?? "Not provided"}
+
+Additional Notes:
+${payload.notes ?? "None"}
+`;
+
+  const response = await generateTextWithFallback(
+    systemPrompt,
+    userPrompt
+  );
+
+  try {
+    const parsed = JSON.parse(
+      cleanJsonResponse(response.answer)
+    );
+
+    if (!Array.isArray(parsed.recommendations)) {
+      throw new Error(
+        "Recommendations array is missing"
+      );
+    }
+
+    return {
+      recommendations: parsed.recommendations,
+      provider: response.provider,
+    };
+  } catch {
+    throw new Error(
+      "AI returned an invalid crop recommendation response"
+    );
+  }
 };
 
 const smartFarmingRecommendation = async (
@@ -316,6 +408,7 @@ const treatmentRecommendation = async (
 };
 
 export const AIService = {
+  cropRecommendation,
   farmingAssistant,
   smartFarmingRecommendation,
   diseaseDetection,

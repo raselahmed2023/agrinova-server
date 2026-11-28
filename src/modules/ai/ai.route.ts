@@ -15,7 +15,7 @@ import {
   treatmentRecommendation,
 } from "./ai.controller.js";
 
-import { validateRequest } from "../../middleware/validateRequest.js";
+import validateRequest from "../../middleware/validateRequest.js";
 
 const router = Router();
 

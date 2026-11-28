@@ -46,3 +46,26 @@ export interface ITreatmentRecommendationResult {
   additionalNotes: string;
   treatmentMode: string;
 }
+
+export interface ICropRecommendationInput {
+  location: string;
+  soilType: string;
+  season: string;
+  waterAvailability: "LOW" | "MEDIUM" | "HIGH";
+  farmSize?: number;
+  notes?: string;
+}
+
+export interface ICropRecommendation {
+  cropName: string;
+  suitability: "High" | "Medium" | "Low";
+  reasons: string[];
+  growingPeriod: string;
+  basicCare: string[];
+  risks: string[];
+}
+
+export interface ICropRecommendationResponse {
+  recommendations: ICropRecommendation[];
+  provider: "GROQ" | "OPENROUTER";
+}
